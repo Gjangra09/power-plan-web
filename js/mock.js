@@ -38,6 +38,14 @@ const activity = [
   { ts: now - 3 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Added data correction C0', device: 'Edge on Windows', details: 'readings 14 Oct 2026 02:00 – 14 Oct 2026 03:00 ignored · reason: logger glitch after power cut · current cycle 182.4 units → 182.4 units' },
   { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows', details: 'start energy 1500 kWh' },
 ];
+const alertDemo = {
+  alertMinutes: 2, remindMinutes: 30, watchMinutes: 1, telegram: true, downSince: null,
+  week: { alerts: 51, reminders: 83, back: 51 },
+  recent: [
+    { ts: now - 2 * 3600e3, key: 'stale', state: 'closed', message: '[Power Plan] ✅ Logger data is back after 6 min without readings (demo)', delivery: 'sent' },
+    { ts: now - 2 * 3600e3 - 4 * 60e3, key: 'stale', state: 'open', message: '[Power Plan] ⚠️ No logger data for 2 min (demo)', delivery: 'sent' },
+  ],
+};
 const corrections = [
   { id: 'C0', kind: 'exclude', from: now - 3 * DAY - 3600e3, to: now - 3 * DAY, value: 0, reason: 'Logger glitch after power cut (demo)', active: true, createdBy: 'you@example.com' },
 ];
@@ -87,6 +95,11 @@ export async function mockCall(action, params) {
       return { ok: true, users: [...users] };
     }
     case 'listCorrections': return { ok: true, corrections: [...corrections] };
+    case 'getAlertSettings': return { ok: true, ...alertDemo };
+    case 'saveAlertSettings':
+      if (!(params.alertMinutes >= 1 && params.remindMinutes >= 5)) throw Object.assign(new Error('Remind every: a whole number of minutes from 5 to 1440.'), { code: 400 });
+      Object.assign(alertDemo, { alertMinutes: params.alertMinutes, remindMinutes: params.remindMinutes });
+      return { ok: true, ...alertDemo };
     case 'saveCorrection': {
       if (!params.reason || params.reason.trim().length < 3) throw Object.assign(new Error('Write a short reason, so the change can be understood later.'), { code: 400 });
       corrections.push({ id: 'C' + corrections.length, kind: params.kind, from: params.from, to: params.to, value: params.kind === 'adjust' ? params.value : 0, reason: params.reason, active: true, createdBy: 'you@example.com' });

@@ -68,6 +68,20 @@
     </section>
 
     <section class="panel">
+      <h2>Alerts</h2>
+      <p class="muted">A Telegram alert is sent when no new logger reading has arrived for the time below, then a reminder at the interval below until data is back, and one message when it is. Raise the numbers if the alerts are too many; lower them to hear sooner.</p>
+      <p id="alertStatus" class="msg" role="status"></p>
+      <form id="alertForm" class="row" style="margin-top: 0.5rem">
+        <label>Alert after (minutes without data) <input type="number" id="alertAfter" min="1" max="1440" step="1" required></label>
+        <label>Remind every (minutes) <input type="number" id="alertRemind" min="5" max="1440" step="1" required></label>
+        <button class="btn" type="submit">Save</button>
+      </form>
+      <p id="alertNote" class="muted-sm"></p>
+      <p id="alertMsg" class="msg" role="status"></p>
+      <div class="table-wrap"><table id="alerts"></table></div>
+    </section>
+
+    <section class="panel">
       <h2>Data corrections</h2>
       <p class="muted">Fix bad logger data without editing it: ignore readings in a time range, or add units the logger missed in a period (or subtract units it counted wrongly). Added units are spread evenly over the period and count in the totals from then on. Raw data is never changed; turning a correction off brings back the exact previous numbers. Every change is in the Activity log with its effect.</p>
       <div class="table-wrap"><table id="corrections"></table></div>

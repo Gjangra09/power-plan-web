@@ -85,8 +85,8 @@ function watchData_(now) {
     }
     if (!w.seenAt) w.seenAt = now;
     const quiet = now - w.seenAt;
-    const limit = configNumber_('staleAlertMinutes', APP.STALE_ALERT_MINUTES) * 60e3;
-    const remind = configNumber_('staleRemindMinutes', APP.STALE_REMIND_MINUTES) * 60e3;
+    const { alertMinutes, remindMinutes } = alertMinutes_();
+    const limit = alertMinutes * 60e3, remind = remindMinutes * 60e3;
     if (quiet >= limit && !w.openSince) {
       w.openSince = now; w.sentAt = now; w.downFrom = w.lastTs || w.seenAt;
       notify_('stale', 'open', `⚠️ No logger data for ${duration_(quiet)} (last reading ${w.lastTs ? fmt_(w.lastTs) : 'none'}). The ESP may be offline or without Wi-Fi; the meter still counts the units meanwhile.`);
@@ -100,6 +100,46 @@ function watchData_(now) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** The data-stopped alert settings: Admin → Alerts (Script Properties), else the defaults. */
+function alertMinutes_() {
+  const p = PropertiesService.getScriptProperties();
+  const num = (key, fallback) => { const v = Number(p.getProperty(key)); return Number.isFinite(v) && v > 0 ? v : fallback; };
+  return { alertMinutes: num('ALERT_AFTER_MINUTES', APP.STALE_ALERT_MINUTES), remindMinutes: num('ALERT_REMIND_MINUTES', APP.STALE_REMIND_MINUTES) };
+}
+
+/** Admin → Alerts: the settings, what was sent in the last 7 days, and the latest alerts. */
+function alertSettings_() {
+  const p = PropertiesService.getScriptProperties();
+  const since = Date.now() - 7 * 86400e3;
+  const rows = readTab_('Alerts').map(r => ({
+    ts: r.Time instanceof Date ? r.Time.getTime() : new Date(r.Time).getTime(),
+    key: String(r.Key), state: String(r.State), message: String(r.Message), delivery: String(r.Delivery),
+  }));
+  const week = rows.filter(r => r.ts >= since && r.key === 'stale');
+  const count = s => week.filter(r => r.state === s).length;
+  const w = JSON.parse(p.getProperty('WATCH') || '{}');
+  return Object.assign(alertMinutes_(), {
+    watchMinutes: APP.WATCH_MINUTES,
+    telegram: !!(p.getProperty('TELEGRAM_BOT_TOKEN') && p.getProperty('TELEGRAM_CHAT_ID')),
+    week: { alerts: count('open'), reminders: count('reminder'), back: count('closed') },
+    downSince: w.openSince ? w.downFrom : null,
+    recent: rows.slice(-20).reverse(),
+  });
+}
+
+function saveAlertSettings_(req) {
+  const a = Number(req.alertMinutes), r = Number(req.remindMinutes);
+  if (!(Number.isInteger(a) && a >= 1 && a <= 1440)) throw httpError_(400, 'Alert after: a whole number of minutes from 1 to 1440.');
+  if (!(Number.isInteger(r) && r >= 5 && r <= 1440)) throw httpError_(400, 'Remind every: a whole number of minutes from 5 to 1440.');
+  const before = alertMinutes_();
+  const p = PropertiesService.getScriptProperties();
+  p.setProperty('ALERT_AFTER_MINUTES', String(a));
+  p.setProperty('ALERT_REMIND_MINUTES', String(r));
+  return Object.assign(alertSettings_(), {
+    details: `alert after ${before.alertMinutes} → ${a} min, reminder every ${before.remindMinutes} → ${r} min`,
+  });
 }
 
 /** "7 min", "2 h 05 min". */
@@ -270,10 +310,6 @@ function trimLogs_() {
   });
 }
 
-function configNumber_(key, fallback) {
-  const v = Number(configValue_(key));
-  return Number.isFinite(v) && v > 0 ? v : fallback;
-}
 
 // ---------- Phase 0 check ----------
 
@@ -321,5 +357,6 @@ function phase0Check() {
   }
   const p = PropertiesService.getScriptProperties();
   Logger.log(`Telegram: ${p.getProperty('TELEGRAM_BOT_TOKEN') && p.getProperty('TELEGRAM_CHAT_ID') ? 'set up (run sendTestAlert to try it)' : 'not set up – alerts only go to the Alerts tab'}`);
-  Logger.log(`Data-stopped alert: after ${configNumber_('staleAlertMinutes', APP.STALE_ALERT_MINUTES)} min without a new reading, reminder every ${configNumber_('staleRemindMinutes', APP.STALE_REMIND_MINUTES)} min, checked every ${APP.WATCH_MINUTES} min.`);
+  const am = alertMinutes_();
+  Logger.log(`Data-stopped alert: after ${am.alertMinutes} min without a new reading, reminder every ${am.remindMinutes} min, checked every ${APP.WATCH_MINUTES} min (change on Admin → Alerts).`);
 }

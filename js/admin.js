@@ -14,6 +14,7 @@ boot().then(data => {
   loadUsers();
   setupBillForm();
   setupUserForm();
+  setupAlerts();
   setupCorrections();
   setupActivity();
 }).catch(() => { /* error already shown */ });
@@ -112,6 +113,59 @@ async function removeUser(email) {
   } catch (err) {
     setMsg(msg, err.message, false);
   }
+}
+
+// ---------- alerts ----------
+
+const ALERT_STATE = { open: 'Alert', reminder: 'Reminder', closed: 'Back', test: 'Test' };
+
+function setupAlerts() {
+  const form = document.getElementById('alertForm');
+  const msg = document.getElementById('alertMsg');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    await busy(form, msg, async () => {
+      const r = await call('saveAlertSettings', {
+        alertMinutes: Number(document.getElementById('alertAfter').value),
+        remindMinutes: Number(document.getElementById('alertRemind').value),
+      });
+      renderAlerts(r);
+      setMsg(msg, 'Saved. The next check uses the new settings.', true);
+      loadActivity();
+    });
+  });
+  loadAlerts();
+}
+
+async function loadAlerts() {
+  try {
+    renderAlerts(await call('getAlertSettings'));
+  } catch (err) {
+    setMsg(document.getElementById('alertMsg'), err.message, false);
+  }
+}
+
+function renderAlerts(s) {
+  document.getElementById('alertAfter').value = s.alertMinutes;
+  document.getElementById('alertRemind').value = s.remindMinutes;
+  const w = s.week;
+  const perDay = (w.alerts + w.reminders + w.back) / 7;
+  setMsg(document.getElementById('alertStatus'),
+    `${s.downSince ? `⚠️ No logger data since ${dateTime(s.downSince)}. ` : ''}Last 7 days: ${w.alerts} alerts, ${w.reminders} reminders, ${w.back} "back" messages – about ${num(perDay, 1)} messages a day.${s.telegram ? '' : ' Telegram is not set up, so they are only listed here.'}`,
+    !s.downSince);
+  document.getElementById('alertNote').textContent = s.alertMinutes < s.watchMinutes
+    ? `Data is checked every ${s.watchMinutes} min here, so an alert can come up to ${s.watchMinutes} min later than set.`
+    : `Data is checked every ${s.watchMinutes} min.`;
+  const table = document.getElementById('alerts');
+  if (!s.recent.length) return table.replaceChildren(el('tr', {}, el('td', { class: 'muted' }, 'No alerts sent yet.')));
+  table.replaceChildren(
+    el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Type'), el('th', {}, 'Message'), el('th', {}, 'Telegram')),
+    ...s.recent.map(a => el('tr', {},
+      el('td', {}, dateTime(a.ts)),
+      el('td', {}, el('span', { class: `tag ${a.state === 'closed' ? 'tag--sign-in' : a.state === 'test' ? 'tag--view' : 'tag--denied'}` }, ALERT_STATE[a.state] || a.state)),
+      el('td', {}, a.message),
+      el('td', {}, a.delivery),
+    )));
 }
 
 // ---------- data corrections ----------

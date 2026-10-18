@@ -183,16 +183,30 @@ test('D5 a reading every minute never alerts, even with the ESP clock 10 minutes
   assert.equal(b.sent.length, 0);
 });
 
-test('D5 the alert wait and reminder interval follow the Config rows', () => {
+test('D5 the alert wait and reminder interval follow Admin → Alerts', () => {
   const b = ready();
-  b.tab('Config').appendRow(['staleAlertMinutes', 10]);
-  b.tab('Config').appendRow(['staleRemindMinutes', 60]);
+  const r = b.ctx.saveAlertSettings_({ alertMinutes: 10, remindMinutes: 60 });
+  assert.equal(r.details, 'alert after 2 → 10 min, reminder every 30 → 60 min');
   [0, 5, 9].forEach(m => b.ctx.watchData_(T + m * MIN));
   assert.equal(b.sent.length, 0);
   [10, 40, 69].forEach(m => b.ctx.watchData_(T + m * MIN));
   assert.equal(b.sent.length, 1);
   b.ctx.watchData_(T + 70 * MIN);
   assert.equal(b.sent.length, 2);
+});
+
+test('D5 Admin → Alerts shows the settings and what was sent in the last 7 days; bad values are refused', () => {
+  const b = ready();
+  [0, 2, 32].forEach(m => b.ctx.watchData_(T + m * MIN));
+  newReading(b, T + 33 * MIN); b.ctx.watchData_(T + 33 * MIN);
+  const s = b.ctx.alertSettings_();
+  assert.deepEqual([s.alertMinutes, s.remindMinutes, s.watchMinutes, s.telegram], [2, 30, 5, true]);
+  assert.equal(JSON.stringify(s.week), JSON.stringify({ alerts: 1, reminders: 1, back: 1 }));
+  assert.deepEqual(s.recent.map(a => a.state), ['closed', 'reminder', 'open']);
+  assert.equal(s.downSince, null);
+  assert.throws(() => b.ctx.saveAlertSettings_({ alertMinutes: 0, remindMinutes: 30 }), /1 to 1440/);
+  assert.throws(() => b.ctx.saveAlertSettings_({ alertMinutes: 5, remindMinutes: 2 }), /5 to 1440/);
+  assert.throws(() => b.ctx.saveAlertSettings_({ alertMinutes: 2.5, remindMinutes: 30 }), /whole number/);
 });
 
 test('D5 without Telegram set up, alerts are still recorded in the Alerts tab', () => {

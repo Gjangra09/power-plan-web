@@ -25,6 +25,8 @@ const ACTIONS = {
   listCorrections:     { role: 'admin', fn: () => ({ corrections: corrections_() }) },
   saveCorrection:      { role: 'admin', fn: saveCorrection_ },
   setCorrectionActive: { role: 'admin', fn: setCorrectionActive_ },
+  getAlertSettings:    { role: 'admin', fn: alertSettings_ },
+  saveAlertSettings:   { role: 'admin', fn: saveAlertSettings_ },
 };
 
 // What goes into the Activity tab for each action: [type, event, details (before → after)], or null to skip
@@ -38,6 +40,7 @@ const ACTIVITY = {
   removeUser:       (req, r) => ['change', `Removed ${String(req.email).trim().toLowerCase()}`, r.details],
   saveCorrection:      (req, r) => ['change', `Added data correction ${r.saved.id}`, r.details],
   setCorrectionActive: (req, r) => ['change', `Turned data correction ${r.id} ${r.active ? 'on' : 'off'}`, r.details],
+  saveAlertSettings:   (req, r) => ['change', 'Changed alert settings', r.details],
 };
 
 const SESSION_RENEW_MS = 15 * 86400e3; // renew when less than this is left

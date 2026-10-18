@@ -42,8 +42,9 @@ const APP = {
 
   // "Logger data stopped" alert: sent when no new reading has arrived for this many minutes
   // (Google's clock, so a wrong ESP clock doesn't matter), then a reminder every
-  // STALE_REMIND_MINUTES until data is back. Change them with Config rows staleAlertMinutes /
-  // staleRemindMinutes. On last year's data 2 min ≈ 8 alerts + 12 reminders a day.
+  // STALE_REMIND_MINUTES until data is back. These are the defaults: Admin → Alerts changes them
+  // (kept in Script Properties, so the every-minute check needn't open the sheet).
+  // On last year's data 2 min ≈ 8 alerts + 12 reminders a day.
   STALE_ALERT_MINUTES: 2,
   STALE_REMIND_MINUTES: 30,
   // How often watchData runs. Prod and UAT share the account's 90 min/day of trigger time, so
