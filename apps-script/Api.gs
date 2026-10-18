@@ -39,6 +39,19 @@ function doPost(e) {
   }
 }
 
+/**
+ * Run from the editor to check the sign-in verification. A fake token must log code=401;
+ * anything else is the real error. Running it also prompts for any missing permission.
+ */
+function selfTest() {
+  try {
+    verifyToken_('abc.def.ghi');
+    Logger.log('Unexpected: fake token accepted');
+  } catch (e) {
+    Logger.log(`code=${e.code || 500} message=${e.message}`);
+  }
+}
+
 function doGet() {
   return json_({ ok: true, service: 'power-plan', time: new Date().toISOString() });
 }
