@@ -355,6 +355,15 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
   .grid2 { grid-template-columns: 1fr; }
 }
 
+/* Admin → Who can view */
+.ticks { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; align-items: center; }
+.tick { display: inline-flex; gap: 0.35rem; align-items: center; font-size: 0.86rem; white-space: nowrap; }
+.tick--fixed { color: var(--text-muted); }
+.preset { font-size: 0.82rem; padding: 0.2rem 0.4rem; width: auto; }
+.row-actions { white-space: nowrap; }
+.row-actions .btn { margin: 0.15rem 0.25rem 0.15rem 0; }
+.request { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; margin-bottom: 0.6rem; border: 1px solid rgba(167, 139, 250, 0.35); border-radius: 12px; background: rgba(167, 139, 250, 0.08); }
+
 /* Uploaded bills */
 .upload input[type=file] { color: var(--text-muted); margin: 0.5rem 0; }
 .review { margin-top: 1rem; }

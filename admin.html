@@ -51,8 +51,9 @@
     </section>
 
     <section class="panel">
-      <h2>Who can view</h2>
-      <p class="muted">Viewers see the Summary page with their own Google account. Admins can also use this page.</p>
+      <h2 id="usersTitle">Who can view</h2>
+      <p class="muted">Each person signs in with their own Google account. Viewers always see the Summary; tick the other pages they may open (it applies on their next click). Admins see everything, including this page.</p>
+      <div id="requests"></div>
       <div class="table-wrap"><table id="users"></table></div>
       <form id="userForm" class="row" style="margin-top: 0.75rem">
         <label>Email <input type="email" id="userEmail" required placeholder="family.member@gmail.com"></label>

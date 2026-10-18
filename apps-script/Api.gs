@@ -30,6 +30,8 @@ const ACTIONS = {
   deleteLatestBill: { role: 'admin', fn: 'deleteLatestBill_' },
   listUsers:     { role: 'admin',  fn: () => ({ users: usersWithLastSeen_() }) },
   saveUser:      { role: 'admin',  fn: 'saveUser_' },
+  setPages:      { role: 'admin',  fn: 'setPages_' },
+  decideRequest: { role: 'admin',  fn: 'decideRequest_' },
   removeUser:    { role: 'admin',  fn: 'removeUser_' },
   listActivity:  { role: 'admin',  fn: 'listActivity_' },
   listCorrections:     { role: 'admin', fn: () => ({ corrections: corrections_() }) },
@@ -53,6 +55,8 @@ const ACTIVITY = {
   summary:          req => (req.page ? ['view', `Opened ${PAGE_LABELS[req.page] || 'Summary'}`] : null),
   requestAccess:    (req, r) => (r.alreadyAsked ? null : ['request', requestEvent_(r.page)]),
   getBillFile:      (req, r) => ['view', `Opened bill PDF ${r.name}`],
+  setPages:         (req, r) => ['change', `Changed pages for ${r.email}`, r.details],
+  decideRequest:    (req, r) => ['change', decisionEvent_(r.approve, r.page, r.email)],
   uploadBill:       (req, r) => ['change', 'Uploaded a DHBVN bill', r.details],
   deleteBillDoc:    (req, r) => ['change', 'Removed an uploaded DHBVN bill', r.details],
   applyMeterFactor: (req, r) => ['change', 'Changed the meter factor', r.details],
@@ -269,6 +273,7 @@ function saveUser_(req, user) {
   const role = req.role === 'admin' ? 'admin' : 'viewer';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw httpError_(400, 'Enter a valid email address.');
   if (email === user.email && role !== 'admin') throw httpError_(400, 'You cannot remove your own admin role.');
+  if (role !== 'admin' && roleOf_(email) === 'admin' && adminCount_() <= 1) throw httpError_(400, 'Keep at least one admin.');
   const sh = tab_('Users');
   const rows = sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
   const i = rows.findIndex((r, k) => k > 0 && String(r[0]).toLowerCase() === email);
@@ -281,6 +286,7 @@ function saveUser_(req, user) {
 function removeUser_(req, user) {
   const email = String(req.email || '').trim().toLowerCase();
   if (email === user.email) throw httpError_(400, 'You cannot remove yourself.');
+  if (roleOf_(email) === 'admin' && adminCount_() <= 1) throw httpError_(400, 'Keep at least one admin.');
   const sh = tab_('Users');
   const rows = sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
   const i = rows.findIndex((r, k) => k > 0 && String(r[0]).toLowerCase() === email);
@@ -372,10 +378,18 @@ function listActivity_(req) {
   return { activity: rows.slice(0, Math.min(Number(req.limit) || 1000, 1000)), total: rows.length };
 }
 
+/** Users with their pages, last seen, status (invited until the first sign-in) and open access requests. */
 function usersWithLastSeen_() {
+  const activity = recentActivity_(3000);
   const lastSeen = {};
-  recentActivity_(3000).forEach(a => { if (a.type !== 'denied' && !lastSeen[a.email]) lastSeen[a.email] = a.ts; });
-  return readTab_('Users').map(u => Object.assign({}, u, { LastSeen: lastSeen[String(u.Email).toLowerCase()] || null }));
+  activity.forEach(a => { if (a.type !== 'denied' && !lastSeen[a.email]) lastSeen[a.email] = a.ts; });
+  const users = readTab_('Users').map(u => {
+    const email = String(u.Email).toLowerCase();
+    const role = u.Role === 'admin' ? 'admin' : 'viewer';
+    return Object.assign({}, u, { email, role, pages: pagesFor_(role, u.Pages), LastSeen: lastSeen[email] || null, status: lastSeen[email] ? 'active' : 'invited' });
+  });
+  const open = openRequests_(activity, users);
+  return users.map(u => Object.assign(u, { requests: open[u.email] || [] }));
 }
 
 // ---------- auth ----------

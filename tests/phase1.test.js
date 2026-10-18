@@ -266,3 +266,51 @@ test('1C applying a calibrated meter factor makes a new tariff version and the c
   assert.ok(Math.abs(after - before / 1.02 * 1.01) < 1e-9);
   assert.throws(() => b.ctx.applyMeterFactor_({ factor: 2 }, admin), /between 0\.9 and 1\.1/);
 });
+
+// ---------- 1D: access management (G4) ----------
+
+test('G4 ticking pages from Admin: takes effect on the next request, logged before → after; admins and unknown pages refused', () => {
+  const b = ready();
+  const r = post(b, 'admin@example.com', { action: 'setPages', email: 'viewer@example.com', pages: ['past', 'health'] });
+  assert.equal(r.details, 'Summary → Summary, Past cycles, Service health');
+  assert.equal(post(b, 'viewer@example.com', { action: 'summary', cycle: B1 }).ok, true);
+  const act = b.ctx.recentActivity_(5).find(a => a.event === 'Changed pages for viewer@example.com');
+  assert.equal(act.details, 'Summary → Summary, Past cycles, Service health');
+  assert.match(post(b, 'admin@example.com', { action: 'setPages', email: 'admin@example.com', pages: [] }).error, /Admins always see every page/);
+  assert.equal(post(b, 'admin@example.com', { action: 'setPages', email: 'viewer@example.com', pages: ['root'] }).code, 400);
+  assert.equal(post(b, 'viewer@example.com', { action: 'setPages', email: 'viewer@example.com', pages: ['documents'] }).error, 'Admin only');
+  post(b, 'admin@example.com', { action: 'setPages', email: 'viewer@example.com', pages: [] });
+  assert.equal(post(b, 'viewer@example.com', { action: 'summary', cycle: B1 }).code, 403, 'unticked: gone at once');
+});
+
+test('G4 access requests: open until approved (page given) or declined; asking again after a decline reopens it', () => {
+  const b = ready();
+  post(b, 'viewer@example.com', { action: 'requestAccess', page: 'past' });
+  post(b, 'viewer@example.com', { action: 'requestAccess', page: 'documents' });
+  const listed = u => post(b, 'admin@example.com', { action: 'listUsers' }).users.find(x => x.email === u);
+  assert.deepEqual(listed('viewer@example.com').requests, ['documents', 'past']);
+  post(b, 'admin@example.com', { action: 'decideRequest', email: 'viewer@example.com', page: 'past', approve: true });
+  post(b, 'admin@example.com', { action: 'decideRequest', email: 'viewer@example.com', page: 'documents', approve: false });
+  const v = listed('viewer@example.com');
+  assert.deepEqual(v.requests, []);
+  assert.deepEqual(v.pages, ['summary', 'past']);
+  assert.ok(b.ctx.recentActivity_(10).some(a => a.event === 'Declined access to Bill documents for viewer@example.com'));
+});
+
+test('G4 the last admin can be neither removed nor turned into a viewer', () => {
+  const b = ready();
+  const admin = { email: 'other@example.com', role: 'admin' };   // a second session acting on the only admin
+  b.tab('Users').appendRow(['other@example.com', 'viewer', '']);
+  assert.throws(() => b.ctx.saveUser_({ email: 'admin@example.com', role: 'viewer' }, admin), /at least one admin/);
+  assert.throws(() => b.ctx.removeUser_({ email: 'admin@example.com' }, admin), /at least one admin/);
+  b.ctx.saveUser_({ email: 'other@example.com', role: 'admin' }, { email: 'admin@example.com' });
+  assert.doesNotThrow(() => b.ctx.saveUser_({ email: 'admin@example.com', role: 'viewer' }, admin));
+});
+
+test('G4 the user list shows invited (never signed in) vs active people', () => {
+  const b = ready();
+  post(b, 'viewer@example.com', { action: 'summary', page: 'summary' });
+  const users = post(b, 'admin@example.com', { action: 'listUsers' }).users;
+  assert.equal(users.find(u => u.email === 'viewer@example.com').status, 'active');
+  assert.equal(users.find(u => u.email === 'past@example.com').status, 'invited');
+});

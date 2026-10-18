@@ -46,9 +46,11 @@ const bills = [
   { ts: cycleStart - 63 * DAY, startEnergy: 1000, expectedNextTs: null, note: 'Demo' },
   { ts: cycleStart, startEnergy: 1500, expectedNextTs: null, note: 'Demo' },
 ];
+const ALL_PAGES = ['summary', 'past', 'breakdown', 'documents', 'health'];
 const users = [
-  { Email: 'you@example.com', Role: 'admin', LastSeen: now - 2 * 60e3 },
-  { Email: 'family@example.com', Role: 'viewer', LastSeen: now - 5 * 3600e3 },
+  { Email: 'you@example.com', email: 'you@example.com', Role: 'admin', role: 'admin', pages: ALL_PAGES, LastSeen: now - 2 * 60e3, status: 'active', requests: [] },
+  { Email: 'family@example.com', email: 'family@example.com', Role: 'viewer', role: 'viewer', pages: ['summary', 'past'], LastSeen: now - 5 * 3600e3, status: 'active', requests: ['breakdown'] },
+  { Email: 'cousin@example.com', email: 'cousin@example.com', Role: 'viewer', role: 'viewer', pages: ['summary'], LastSeen: null, status: 'invited', requests: [] },
 ];
 const activity = [
   { ts: now - 2 * 60e3, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'view', event: 'Opened Summary', device: 'Chrome on Android' },
@@ -148,9 +150,22 @@ export async function mockCall(action, params) {
     }
     case 'deleteLatestBill': bills.pop(); return { ok: true };
     case 'listUsers': return { ok: true, users: [...users] };
+    case 'setPages': {
+      const u = users.find(x => x.email === params.email);
+      const before = u.pages.join(', ');
+      u.pages = ['summary', ...params.pages.filter(p => p !== 'summary')];
+      u.requests = u.requests.filter(p => !u.pages.includes(p));
+      return { ok: true, users: [...users], email: u.email, details: `${before} → ${u.pages.join(', ')} (demo)` };
+    }
+    case 'decideRequest': {
+      const u = users.find(x => x.email === params.email);
+      if (params.approve && !u.pages.includes(params.page)) u.pages.push(params.page);
+      u.requests = u.requests.filter(p => p !== params.page);
+      return { ok: true, users: [...users] };
+    }
     case 'saveUser': {
       const u = users.find(x => x.Email === params.email);
-      if (u) u.Role = params.role; else users.push({ Email: params.email, Role: params.role });
+      if (u) { u.Role = u.role = params.role; } else users.push({ Email: params.email, email: params.email, Role: params.role, role: params.role, pages: ['summary'], LastSeen: null, status: 'invited', requests: [] });
       return { ok: true, users: [...users] };
     }
     case 'removeUser': {

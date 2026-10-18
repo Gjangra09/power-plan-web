@@ -75,20 +75,91 @@ async function loadUsers() {
   }
 }
 
+// Pages a viewer can be given (Summary is always on); same keys as the server (Access.gs)
+const PAGES = { past: 'Past cycles', breakdown: 'Bill breakdown', documents: 'Bill documents', health: 'Service health' };
+const PRESETS = { summary: [], noDocs: ['past', 'breakdown', 'health'], all: Object.keys(PAGES) };
+
 function renderUsers(users) {
+  renderRequests(users);
   document.getElementById('users').replaceChildren(
-    el('tr', {}, el('th', {}, 'Email'), el('th', {}, 'Role'), el('th', {}, 'Last seen'), el('th', {}, '')),
-    ...users.map(u => el('tr', {},
-      el('td', {}, u.Email),
-      el('td', {}, u.Role),
-      el('td', {}, u.LastSeen ? dateTime(u.LastSeen) : 'never'),
-      el('td', {}, String(u.Email).toLowerCase() === me ? '(you)' : el('button', { class: 'btn btn--ghost', onclick: () => removeUser(u.Email) }, 'Remove')),
-    )));
+    el('tr', {}, el('th', {}, 'Person'), el('th', {}, 'Role'), el('th', {}, 'Pages they can open'), el('th', {}, '')),
+    ...users.map(u => {
+      const mine = u.email === me;
+      const status = u.status === 'invited'
+        ? el('span', { class: 'tag tag--request' }, 'Invited – not signed in yet')
+        : el('span', { class: 'muted-sm' }, `last seen ${dateTime(u.LastSeen)}`);
+      return el('tr', {},
+        el('td', {}, el('div', {}, u.Email), status),
+        el('td', {}, u.role),
+        el('td', {}, u.role === 'admin' ? el('span', { class: 'muted' }, 'All pages (admin)') : pageTicks(u)),
+        el('td', { class: 'row-actions' }, mine ? '(you)' : [
+          el('button', { class: 'btn btn--small', type: 'button', onclick: () => copyInvite(u.Email) }, 'Copy invite'),
+          el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: () => removeUser(u.Email) }, 'Remove'),
+        ]));
+    }));
   const pick = document.getElementById('actEmail');
   const chosen = pick.value;
   pick.replaceChildren(el('option', { value: '' }, 'Everyone'),
     ...users.map(u => el('option', { value: String(u.Email).toLowerCase() }, u.Email)));
   pick.value = chosen;
+}
+
+/** Tick boxes for a viewer's pages, saved on change, plus quick presets. */
+function pageTicks(u) {
+  const boxes = Object.keys(PAGES).map(p => el('input', { type: 'checkbox', value: p, checked: u.pages.includes(p) ? 'checked' : null }));
+  const save = async pages => {
+    const msg = document.getElementById('userMsg');
+    try {
+      const r = await call('setPages', { email: u.email, pages });
+      renderUsers(r.users);
+      setMsg(msg, `${u.email}: ${r.details}`, true);
+      loadActivity();
+    } catch (err) {
+      setMsg(msg, err.message, false);
+      renderUsers((await call('listUsers')).users);
+    }
+  };
+  boxes.forEach(b => b.addEventListener('change', () => save(boxes.filter(x => x.checked).map(x => x.value))));
+  const preset = el('select', { class: 'preset', 'aria-label': `Preset for ${u.email}`, onchange: e => { if (e.target.value) save(PRESETS[e.target.value]); } },
+    el('option', { value: '' }, 'Preset…'), el('option', { value: 'summary' }, 'Summary only'),
+    el('option', { value: 'noDocs' }, 'All except bill documents'), el('option', { value: 'all' }, 'Everything'));
+  return el('div', { class: 'ticks' },
+    el('label', { class: 'tick tick--fixed' }, el('input', { type: 'checkbox', checked: 'checked', disabled: 'disabled' }), 'Summary'),
+    ...Object.keys(PAGES).map((p, i) => el('label', { class: 'tick' }, boxes[i], PAGES[p])),
+    preset);
+}
+
+/** Open access requests, with Approve / Decline. */
+function renderRequests(users) {
+  const open = users.flatMap(u => (u.requests || []).map(p => ({ email: u.email, page: p })));
+  document.getElementById('usersTitle').textContent = open.length ? `Who can view · ${open.length} access request${open.length > 1 ? 's' : ''}` : 'Who can view';
+  document.getElementById('requests').replaceChildren(...open.map(r => el('div', { class: 'request' },
+    el('span', {}, '🔑 ', el('strong', {}, r.email), ` asks for ${PAGES[r.page] || r.page}`),
+    el('span', { class: 'row' },
+      el('button', { class: 'btn btn--small', type: 'button', onclick: () => decide(r, true) }, 'Approve'),
+      el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: () => decide(r, false) }, 'Decline')))));
+}
+
+async function decide(r, approve) {
+  const msg = document.getElementById('userMsg');
+  try {
+    renderUsers((await call('decideRequest', { email: r.email, page: r.page, approve })).users);
+    setMsg(msg, `${approve ? 'Approved' : 'Declined'}: ${PAGES[r.page]} for ${r.email}.`, true);
+    loadActivity();
+  } catch (err) { setMsg(msg, err.message, false); }
+}
+
+/** Puts a ready invite message on the clipboard (paste it into WhatsApp); no email is sent. */
+async function copyInvite(email) {
+  const url = location.origin + location.pathname.replace(/admin\.html$/, '');
+  const text = `Hi! I have added you to Power Plan, our home electricity dashboard. Open ${url} and sign in with your Google account (${email}).`;
+  const msg = document.getElementById('userMsg');
+  try {
+    await navigator.clipboard.writeText(text);
+    setMsg(msg, 'Invite copied – paste it into WhatsApp or a message.', true);
+  } catch {
+    window.prompt('Copy this invite:', text);
+  }
 }
 
 function setupUserForm() {
