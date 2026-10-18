@@ -20,11 +20,11 @@
       <a href="./">Summary</a>
       <a href="admin.html" aria-current="page" data-admin hidden>Admin</a>
     </nav>
-    <div class="who"><span id="who"></span> <button id="signout" class="link" hidden>Sign out</button></div>
+    <div class="who" id="who"></div>
   </header>
 
   <p id="demo" class="status status--demo" hidden><strong>DEMO DATA – not your meter.</strong> Changes here are not saved.</p>
-  <div id="signin" class="signin" hidden></div>
+  <section id="signin" class="login" aria-label="Sign in" hidden></section>
   <p id="status" class="status" hidden></p>
 
   <main id="main" hidden>
@@ -65,6 +65,29 @@
         <button class="btn" type="submit">Add / update</button>
       </form>
       <p id="userMsg" class="msg" role="status"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Activity</h2>
+      <p class="muted">Who signed in, what they opened, every admin change, and blocked attempts. Newest first.</p>
+      <form id="actFilter" class="row">
+        <label>Person
+          <select id="actEmail"><option value="">Everyone</option></select>
+        </label>
+        <label>Type
+          <select id="actType">
+            <option value="">Everything</option>
+            <option value="sign-in">Sign-ins</option>
+            <option value="sign-out">Sign-outs</option>
+            <option value="view">Pages opened</option>
+            <option value="change">Changes</option>
+            <option value="denied">Blocked attempts</option>
+          </select>
+        </label>
+        <button class="btn" type="submit">Refresh</button>
+      </form>
+      <div class="table-wrap"><table id="activity"></table></div>
+      <p id="actMsg" class="msg" role="status"></p>
     </section>
   </main>
 </body>

@@ -1,16 +1,20 @@
-// Admin page: billing date/time, billing history, viewers.
+// Admin page: billing date/time, billing history, viewers, activity log.
 import { boot, el, num, dateTime, dateOnly, showError } from './ui.js';
 import { call } from './api.js';
+
+let me = '';
 
 boot().then(data => {
   if (data.me.role !== 'admin') {
     document.getElementById('main').hidden = true;
     return showError('Only admins can open this page.');
   }
+  me = data.me.email;
   renderBills(data.bills);
   loadUsers();
   setupBillForm();
   setupUserForm();
+  setupActivity();
 }).catch(() => { /* error already shown */ });
 
 function setupBillForm() {
@@ -69,14 +73,19 @@ async function loadUsers() {
 }
 
 function renderUsers(users) {
-  const me = document.getElementById('who').textContent.toLowerCase();
   document.getElementById('users').replaceChildren(
-    el('tr', {}, el('th', {}, 'Email'), el('th', {}, 'Role'), el('th', {}, '')),
+    el('tr', {}, el('th', {}, 'Email'), el('th', {}, 'Role'), el('th', {}, 'Last seen'), el('th', {}, '')),
     ...users.map(u => el('tr', {},
       el('td', {}, u.Email),
       el('td', {}, u.Role),
+      el('td', {}, u.LastSeen ? dateTime(u.LastSeen) : 'never'),
       el('td', {}, String(u.Email).toLowerCase() === me ? '(you)' : el('button', { class: 'btn btn--ghost', onclick: () => removeUser(u.Email) }, 'Remove')),
     )));
+  const pick = document.getElementById('actEmail');
+  const chosen = pick.value;
+  pick.replaceChildren(el('option', { value: '' }, 'Everyone'),
+    ...users.map(u => el('option', { value: String(u.Email).toLowerCase() }, u.Email)));
+  pick.value = chosen;
 }
 
 function setupUserForm() {
@@ -99,6 +108,38 @@ async function removeUser(email) {
   try {
     renderUsers((await call('removeUser', { email })).users);
     setMsg(msg, 'Removed.', true);
+  } catch (err) {
+    setMsg(msg, err.message, false);
+  }
+}
+
+const TYPE_LABEL = { 'sign-in': 'Signed in', 'sign-out': 'Signed out', view: 'Opened', change: 'Change', denied: 'Blocked' };
+
+function setupActivity() {
+  const form = document.getElementById('actFilter');
+  form.addEventListener('submit', e => { e.preventDefault(); loadActivity(); });
+  form.addEventListener('change', loadActivity);
+  loadActivity();
+}
+
+async function loadActivity() {
+  const msg = document.getElementById('actMsg');
+  setMsg(msg, 'Loading…', true);
+  try {
+    const { activity } = await call('listActivity', {
+      email: document.getElementById('actEmail').value,
+      type: document.getElementById('actType').value,
+    });
+    document.getElementById('activity').replaceChildren(
+      el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Who'), el('th', {}, 'Type'), el('th', {}, 'What'), el('th', {}, 'Device')),
+      ...activity.map(a => el('tr', {},
+        el('td', {}, dateTime(a.ts)),
+        el('td', {}, a.name ? `${a.name} (${a.email})` : a.email),
+        el('td', {}, el('span', { class: `tag tag--${a.type}` }, TYPE_LABEL[a.type] || a.type)),
+        el('td', {}, a.event),
+        el('td', {}, a.device || ''),
+      )));
+    setMsg(msg, activity.length ? `${activity.length} entries${activity.length >= 300 ? ' (latest 300)' : ''}.` : 'Nothing logged yet.', true);
   } catch (err) {
     setMsg(msg, err.message, false);
   }

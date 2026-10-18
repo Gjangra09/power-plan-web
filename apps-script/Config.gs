@@ -31,6 +31,12 @@ const APP = {
   // Hours of history before the cycle start sent to the dashboard
   LEAD_HOURS: 24,
 
+  // App sign-in lasts this long after Google sign-in, and renews while the app is used
+  SESSION_DAYS: 30,
+
+  // Activity log rows kept (oldest are trimmed)
+  ACTIVITY_MAX_ROWS: 5000,
+
   // DHBVN meter-reading dates before this app existed (time unknown, stored as 00:00)
   SEED_BILL_DATES: ['2025-09-25', '2025-11-14', '2026-01-17', '2026-03-28', '2026-05-22', '2026-07-17', '2026-09-18'],
 };
@@ -40,6 +46,7 @@ const TABS = {
   Bills: ['BillTsMs', 'BillTime', 'StartEnergy', 'ExpectedNextMs', 'Note', 'CreatedBy', 'CreatedAt'],
   Config: ['Key', 'Value'],
   Users: ['Email', 'Role'],
+  Activity: ['Time', 'Email', 'Name', 'Role', 'Type', 'Event', 'Device'],
 };
 
 /** Run from the editor: shows which environment this project is and whether every setting is filled. */

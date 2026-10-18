@@ -1,5 +1,5 @@
 // Shared page chrome and formatting.
-import { signIn, signOut, call, isDemo } from './api.js';
+import { signIn, signOut, clearSession, currentSession, call, isDemo } from './api.js';
 import { CONFIG } from './config.js';
 
 // UAT pages carry a ribbon and a title prefix so a test version is never mistaken for prod
@@ -33,23 +33,108 @@ export function showError(message) {
   box.textContent = message;
 }
 
+// Fixed icon markup (never user data)
+const ICON = {
+  bolt: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  meter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-6"/></svg>',
+  rupee: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12M6 9h12M14 20 7 13h2a5 5 0 0 0 0-9"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+};
+
+function icon(name, cls = 'icon') {
+  const span = el('span', { class: cls, 'aria-hidden': 'true' });
+  span.innerHTML = ICON[name];
+  return span;
+}
+
+/** Full-page sign-in card, built into #signin. */
+function loginUi() {
+  const root = document.getElementById('signin');
+  const button = el('div', { class: 'login__button' });
+  const msg = el('p', { class: 'login__msg', role: 'status' });
+  const point = (name, text) => el('li', {}, icon(name, 'login__point-icon'), text);
+  root.className = 'login';
+  root.replaceChildren(
+    el('div', { class: 'login__card' },
+      icon('bolt', 'login__logo'),
+      el('h1', { class: 'login__title' }, 'Power Plan'),
+      el('p', { class: 'login__tag' }, 'Know your electricity bill before the meter reader does.'),
+      el('ul', { class: 'login__points' },
+        point('meter', 'Live units since your last meter reading'),
+        point('rupee', 'Projected bill for the whole cycle'),
+        point('chart', 'Daily usage and how it is trending'),
+      ),
+      button,
+      msg,
+      el('p', { class: 'login__foot' }, icon('lock', 'login__foot-icon'), 'Private. Only family members the admin has added can sign in.'),
+    ),
+  );
+  return {
+    button,
+    show() { root.hidden = false; document.body.classList.add('signed-out'); },
+    hide() { root.hidden = true; document.body.classList.remove('signed-out'); },
+    message(text, kind) { msg.textContent = text; msg.className = `login__msg login__msg--${kind}`; },
+  };
+}
+
+/** Avatar + name + role in the header, with a menu: details, Admin link, sign out. */
+function renderProfile(me, exp) {
+  const box = document.getElementById('who');
+  const initials = (me.name || me.email).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+  const avatar = big => {
+    const a = el('span', { class: big ? 'avatar avatar--big' : 'avatar' }, initials);
+    if (me.picture) {
+      const img = el('img', { src: me.picture, alt: '', referrerpolicy: 'no-referrer' });
+      img.addEventListener('error', () => img.remove());
+      a.append(img);
+    }
+    return a;
+  };
+  const pill = () => el('span', { class: `role-pill role-pill--${me.role}` }, me.role === 'admin' ? 'Admin' : 'Viewer');
+  const menu = el('div', { class: 'profile__menu', role: 'menu', hidden: true },
+    el('div', { class: 'profile__head' }, avatar(true),
+      el('div', { class: 'profile__id' },
+        el('strong', {}, me.name || me.email.split('@')[0]),
+        el('span', { class: 'profile__email' }, me.email),
+        pill())),
+    el('p', { class: 'profile__meta' }, icon('clock', 'profile__meta-icon'),
+      isDemo() ? 'Demo mode – nothing is saved.'
+        : `Signed in on this device until ${dateOnly(exp)}. Using the app keeps you signed in.`),
+    me.role === 'admin' ? el('a', { class: 'profile__item', href: 'admin.html', role: 'menuitem' }, icon('shield', 'profile__item-icon'), 'Admin portal') : '',
+    el('button', { class: 'profile__item profile__item--out', role: 'menuitem', onclick: signOut, disabled: isDemo() }, icon('logout', 'profile__item-icon'), 'Sign out'),
+  );
+  const btn = el('button', { class: 'profile__btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: me.email },
+    avatar(false), el('span', { class: 'profile__name' }, me.name || me.email), pill(), icon('chevron', 'profile__chevron'));
+  const toggleMenu = open => { menu.hidden = !open; btn.setAttribute('aria-expanded', String(open)); };
+  btn.addEventListener('click', e => { e.stopPropagation(); toggleMenu(menu.hidden); });
+  document.addEventListener('click', e => { if (!box.contains(e.target)) toggleMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleMenu(false); });
+  box.className = 'who profile';
+  box.replaceChildren(btn, menu);
+}
+
 /** Signs in, fills the header, and resolves with the summary payload. */
 export async function boot() {
-  const signInBox = document.getElementById('signin');
   const main = document.getElementById('main');
   if (isDemo()) document.getElementById('demo').hidden = false;
   try {
-    await signIn(signInBox);
-    const data = await call('summary');
-    document.getElementById('who').textContent = data.me.email;
-    document.getElementById('signout').hidden = isDemo();
-    document.getElementById('signout').addEventListener('click', signOut);
+    await signIn(loginUi());
+    const data = await call('summary', { page: location.pathname.endsWith('admin.html') ? 'admin' : 'summary' });
+    const s = currentSession();
+    renderProfile(Object.assign({}, s?.me, data.me), s?.exp);
     document.querySelectorAll('[data-admin]').forEach(n => { n.hidden = data.me.role !== 'admin'; });
     main.hidden = false;
     return data;
   } catch (err) {
-    if (err.code === 401) {
-      showError('Your sign-in expired. Reloading…');
+    if (err.code === 401 || err.code === 403) {
+      // Sign-in ended, or access was removed: back to the sign-in screen
+      clearSession();
+      showError(err.code === 401 ? 'Your sign-in has ended. Reloading…' : `${err.message} Reloading…`);
       setTimeout(() => location.reload(), 1500);
     } else {
       showError(err.message);

@@ -10,8 +10,15 @@ const bills = [
   { ts: cycleStart, startEnergy: 1500, expectedNextTs: null, note: 'Demo' },
 ];
 const users = [
-  { Email: 'you@example.com', Role: 'admin' },
-  { Email: 'family@example.com', Role: 'viewer' },
+  { Email: 'you@example.com', Role: 'admin', LastSeen: now - 2 * 60e3 },
+  { Email: 'family@example.com', Role: 'viewer', LastSeen: now - 5 * 3600e3 },
+];
+const activity = [
+  { ts: now - 2 * 60e3, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'view', event: 'Opened Summary', device: 'Chrome on Android' },
+  { ts: now - 3 * 60e3, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'sign-in', event: 'Signed in', device: 'Chrome on Android' },
+  { ts: now - 5 * 3600e3, email: 'family@example.com', name: 'Family Member', role: 'viewer', type: 'view', event: 'Opened Summary', device: 'Safari on iPhone/iPad' },
+  { ts: now - 26 * 3600e3, email: 'stranger@example.com', name: 'Someone Else', role: '', type: 'denied', event: 'Not on the users list', device: 'Chrome on Windows' },
+  { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows' },
 ];
 
 // Hourly snapshots: evening peak, slow overnight, with a busier last week
@@ -33,8 +40,11 @@ function points() {
 
 export async function mockCall(action, params) {
   await new Promise(r => setTimeout(r, 150));
-  const me = { email: 'you@example.com', role: 'admin' };
+  const me = { email: 'you@example.com', name: 'Demo Admin', picture: '', role: 'admin' };
   switch (action) {
+    case 'login': return { ok: true, me, session: 'demo', sessionExp: now + 30 * DAY };
+    case 'logout': return { ok: true };
+    case 'listActivity': return { ok: true, activity: activity.filter(a => (!params.email || a.email === params.email) && (!params.type || a.type === params.type)) };
     case 'me': return { ok: true, me };
     case 'summary': return { ok: true, me, bills: [...bills], points: points(), tariff: null, serverTime: Date.now() };
     case 'saveBilling': {
