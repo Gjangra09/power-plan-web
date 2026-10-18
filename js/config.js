@@ -6,7 +6,7 @@
 export const BACKENDS = {
   // Apps Script web app URLs ending in /exec. Empty = demo data.
   prod: 'https://script.google.com/macros/s/AKfycbzWSZxafaBZRwIWoZ3ZQNjTLcUEQlQGrB8Cb60GAW-laVJTw8pNqABVQQG4DO8GUhjv_g/exec',
-  uat: '',
+  uat: 'https://script.google.com/macros/s/AKfycbyTpB71b1ya3wB46Cl5zABxCFQHzGD6PNQTYLocZMQHKj1rfPo3I5dORqM25f2Lu8ty/exec',
 };
 
 export const envFromPath = path => (/\/uat(\/|$)/.test(path) ? 'uat' : 'prod');
