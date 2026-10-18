@@ -7,7 +7,13 @@
  * each hour is kept in the Hourly tab, which survives the archive script deleting old rows.
  */
 
-/** One-time setup: creates the app spreadsheet, seeds users and bills, backfills, installs triggers. */
+// The full backfill reads the whole logger sheet, which takes longer than one Apps Script run
+// (6 min). It is done in steps: each stops after BACKFILL_BUDGET_MS, saves where it got to, and
+// schedules the next step a minute later.
+const BACKFILL_CHUNK = 20000;
+const BACKFILL_BUDGET_MS = 4 * 60 * 1000;
+
+/** One-time setup: creates the app spreadsheet, seeds users, then backfills history (in steps) and finishes. */
 function setup() {
   REQUIRED_PROPS.forEach(requiredProp_);
   const ss = appSheet_(true);
@@ -22,8 +28,19 @@ function setup() {
   const me = Session.getEffectiveUser().getEmail().toLowerCase();
   if (users.getLastRow() < 2) users.appendRow([me, 'admin']);
 
-  backfillHourly();
+  if (!PropertiesService.getScriptProperties().getProperty('BACKFILL_NEXT_ROW')) startBackfill_();
+  continueSetup();
+}
 
+/** Runs one backfill step; schedules itself again until the history is complete, then finishes setup. */
+function continueSetup() {
+  deleteTriggers_('continueSetup');
+  if (!backfillStep_()) {
+    ScriptApp.newTrigger('continueSetup').timeBased().after(60 * 1000).create();
+    Logger.log('Backfill continues automatically in about a minute (see Executions).');
+    return;
+  }
+  const ss = appSheet_();
   const bills = ss.getSheetByName('Bills');
   if (bills.getLastRow() < 2) {
     const points = hourlyPoints_(0);
@@ -34,33 +51,48 @@ function setup() {
     });
     bills.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
   }
-
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'updateHourly')
-    .forEach(t => ScriptApp.deleteTrigger(t));
+  deleteTriggers_('updateHourly');
   ScriptApp.newTrigger('updateHourly').timeBased().everyMinutes(APP.UPDATE_MINUTES).create();
   Logger.log(`Setup done (${APP.ENV}). App sheet: ${ss.getUrl()}`);
 }
 
-/** Rebuilds the Hourly tab from every row currently in the logger sheet. */
+/** Rebuilds the Hourly tab from every row currently in the logger sheet (runs in steps, like setup). */
 function backfillHourly() {
+  startBackfill_();
+  continueSetup();
+}
+
+function startBackfill_() {
   withLock_(() => {
-    const src = sourceSheet_();
-    const last = src.getLastRow();
-    const rows = [];
-    const CHUNK = 50000;
-    for (let r = 2; r <= last; r += CHUNK) {
-      const n = Math.min(CHUNK, last - r + 1);
-      readRows_(src, r, n).forEach(x => rows.push(x));
-    }
-    const state = { lastTs: 0, ref: null, offset: 0, clean: null };
-    const hours = cleanIntoHours_(rows, state, {});
     const sh = appSheet_().getSheetByName('Hourly');
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, TABS.Hourly.length).clearContent();
-    const out = Object.keys(hours).sort().map(k => hourRow_(k, hours[k]));
-    if (out.length) sh.getRange(2, 1, out.length, out[0].length).setValues(out);
-    saveState_(state);
-    Logger.log(`Backfill: ${rows.length} logger rows → ${out.length} hours.`);
+    sh.getRange('A:A').setNumberFormat('@'); // keep Hour as text
+    saveState_({ lastTs: 0, ref: null, offset: 0, clean: null });
+    PropertiesService.getScriptProperties().setProperty('BACKFILL_NEXT_ROW', '2');
+  });
+}
+
+/** Processes logger rows from the saved position until done or out of time. Returns true when complete. */
+function backfillStep_() {
+  const started = Date.now();
+  const props = PropertiesService.getScriptProperties();
+  return withLock_(() => {
+    let next = Number(props.getProperty('BACKFILL_NEXT_ROW'));
+    if (!next) return true;
+    const src = sourceSheet_();
+    const last = src.getLastRow();
+    const state = loadState_();
+    while (next <= last && Date.now() - started < BACKFILL_BUDGET_MS) {
+      const n = Math.min(BACKFILL_CHUNK, last - next + 1);
+      upsertHours_(readRows_(src, next, n), state);
+      next += n;
+      saveState_(state);
+      props.setProperty('BACKFILL_NEXT_ROW', String(next));
+    }
+    Logger.log(`Backfill: ${next - 2} of ${last - 1} logger rows done.`);
+    if (next <= last) return false;
+    props.deleteProperty('BACKFILL_NEXT_ROW');
+    return true;
   });
 }
 
@@ -69,35 +101,52 @@ function updateHourly() {
   withLock_(() => {
     const state = loadState_();
     if (!state) throw new Error('Run setup() first.');
+    if (PropertiesService.getScriptProperties().getProperty('BACKFILL_NEXT_ROW')) return; // setup still running
     const src = sourceSheet_();
     const last = src.getLastRow();
     if (last < 2) return;
     const start = Math.max(2, last - APP.TAIL_ROWS + 1);
-    const rows = readRows_(src, start, last - start + 1);
-
-    // Load the most recent hours so partially filled hours can be continued
-    const sh = appSheet_().getSheetByName('Hourly');
-    const lastRow = sh.getLastRow();
-    const keep = Math.min(72, Math.max(lastRow - 1, 0));
-    const existing = keep ? sh.getRange(lastRow - keep + 1, 1, keep, TABS.Hourly.length).getValues() : [];
-    const rowOf = {};
-    const hours = {};
-    existing.forEach((r, i) => {
-      rowOf[r[0]] = lastRow - keep + 1 + i;
-      hours[r[0]] = { lastTs: Number(r[1]), energy: Number(r[2]), n: Number(r[3]), powerSum: Number(r[4]) * Number(r[3]) };
-    });
-
-    const touched = cleanIntoHours_(rows, state, hours, true);
-    const keys = Object.keys(touched).sort();
-    const append = [];
-    keys.forEach(k => {
-      const row = hourRow_(k, touched[k]);
-      if (rowOf[k]) sh.getRange(rowOf[k], 1, 1, row.length).setValues([row]);
-      else append.push(row);
-    });
-    if (append.length) sh.getRange(sh.getLastRow() + 1, 1, append.length, append[0].length).setValues(append);
+    upsertHours_(readRows_(src, start, last - start + 1), state);
     saveState_(state);
   });
+}
+
+/** Cleans rows into hour snapshots and writes them to the Hourly tab, continuing the most recent hours. */
+function upsertHours_(rows, state) {
+  const sh = appSheet_().getSheetByName('Hourly');
+  const lastRow = sh.getLastRow();
+  const keep = Math.min(72, Math.max(lastRow - 1, 0));
+  const existing = keep ? sh.getRange(lastRow - keep + 1, 1, keep, TABS.Hourly.length).getValues() : [];
+  const rowOf = {};
+  const hours = {};
+  existing.forEach((r, i) => {
+    const key = hourKey_(r[0]);
+    rowOf[key] = lastRow - keep + 1 + i;
+    hours[key] = { lastTs: Number(r[1]), energy: Number(r[2]), n: Number(r[3]), powerSum: Number(r[4]) * Number(r[3]) };
+  });
+
+  const touched = cleanIntoHours_(rows, state, hours, true);
+  const append = [];
+  Object.keys(touched).sort().forEach(k => {
+    const row = hourRow_(k, touched[k]);
+    if (rowOf[k]) sh.getRange(rowOf[k], 1, 1, row.length).setValues([row]);
+    else append.push(row);
+  });
+  if (append.length) sh.getRange(sh.getLastRow() + 1, 1, append.length, append[0].length).setValues(append);
+}
+
+/** Sheets may have turned the "yyyy-MM-dd HH:00" text into a date; turn it back into the key. */
+function hourKey_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:00');
+  }
+  return String(v);
+}
+
+function deleteTriggers_(handler) {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === handler)
+    .forEach(t => ScriptApp.deleteTrigger(t));
 }
 
 /**
@@ -181,7 +230,7 @@ function appSheet_(create) {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('APP_SHEET_ID');
   if (id) return SpreadsheetApp.openById(id);
-  if (!create) throw new Error('Run setup() first.');
+  if (!create) throw httpError_(503, 'The app is still being set up. Try again in a few minutes.');
   const ss = SpreadsheetApp.create(APP.APP_SHEET_NAME);
   props.setProperty('APP_SHEET_ID', ss.getId());
   return ss;
