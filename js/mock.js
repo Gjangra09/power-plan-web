@@ -1,21 +1,41 @@
 // Demo backend used when CONFIG.apiUrl is empty or the URL has ?demo.
 // Synthetic numbers only: no real readings are ever committed to this public repo.
-import { cycleSummary, avgCycleDays, DEFAULT_TARIFF } from './billing.js';
+import { cycleSummary, cycleBreakdown, avgCycleDays, DEFAULT_TARIFF } from './billing.js';
 
-// Like the server: the cycle is calculated here and sent as JSON (Dates become strings)
-function summary(me) {
+const asJson = x => JSON.parse(JSON.stringify(x, (k, v) => (v === Infinity ? 1e9 : v)));
+
+// Like the server: the cycle is calculated here and sent as JSON (Dates become strings).
+// Two demo cycles: a closed one (bills[0] → bills[1]) and the current one.
+function summary(me, params = {}) {
   const pts = points();
-  const out = { ok: true, me, bills: [...bills], points: pts, tariff: DEFAULT_TARIFF, serverTime: Date.now() };
-  const bill = bills[bills.length - 1];
-  if (bill && bill.startEnergy != null) {
-    out.typicalDays = Math.round(avgCycleDays(bills.map(b => new Date(b.ts))));
-    out.calc = JSON.parse(JSON.stringify(cycleSummary({
-      cycleStart: new Date(bill.ts), startEnergy: bill.startEnergy,
-      cycleEnd: new Date(bill.expectedNextTs || bill.ts + out.typicalDays * DAY),
-      points: pts.map(p => ({ ts: new Date(p.ts), energy: p.energy })), now: new Date(out.serverTime),
-    }), (k, v) => (v === Infinity ? 1e9 : v)));
-  }
-  return out;
+  const serverTime = Date.now();
+  const toDates = list => list.map(p => ({ ts: new Date(p.ts), energy: p.energy }));
+  const typicalDays = Math.round(avgCycleDays(bills.map(b => new Date(b.ts))));
+  const [b0, b1] = bills;
+  const closed = cycleSummary({
+    cycleStart: new Date(b0.ts), startEnergy: b0.startEnergy, cycleEnd: new Date(b1.ts), now: new Date(b1.ts),
+    points: toDates(pts.filter(p => p.ts < b1.ts).concat([{ ts: b1.ts, energy: b1.startEnergy }])),
+  });
+  const current = cycleSummary({
+    cycleStart: new Date(b1.ts), startEnergy: b1.startEnergy, cycleEnd: new Date(b1.ts + typicalDays * DAY),
+    points: toDates(pts), now: new Date(serverTime),
+  });
+  const wanted = params.cycle == null ? b1.ts : Number(params.cycle);
+  if (wanted !== b0.ts && wanted !== b1.ts) throw Object.assign(new Error('That bill cycle does not exist.'), { code: 404 });
+  const past = wanted === b0.ts;
+  const calc = past ? closed : current;
+  return {
+    ok: true, me, bills: [...bills], points: pts, tariff: DEFAULT_TARIFF, serverTime, typicalDays,
+    cycle: past ? { start: b0.ts, end: b1.ts, current: false } : { start: b1.ts, end: calc.cycleEnd.getTime(), current: true },
+    cycles: [
+      { start: b0.ts, end: b1.ts, current: false, days: closed.cycleDays, units: closed.unitsSoFar, avgPerDay: closed.unitsSoFar / closed.cycleDays,
+        band: closed.chargesSoFar.band, appTotal: closed.chargesSoFar.total, dhbvnTotal: null, coverage: 0.94 },
+      { start: b1.ts, end: null, current: true },
+    ],
+    calc: asJson(calc),
+    breakdown: asJson(cycleBreakdown(calc, !past)),
+    quality: { total: 0, complete: 0, partial: 0, missing: 0, share: past ? 0.94 : 0.97, filledGaps: 3, outages: 0, corrections: 1 },
+  };
 }
 
 const DAY = 86400e3;
@@ -51,21 +71,26 @@ const corrections = [
   { id: 'C0', kind: 'exclude', from: now - 3 * DAY - 3600e3, to: now - 3 * DAY, value: 0, reason: 'Logger glitch after power cut (demo)', active: true, createdBy: 'you@example.com' },
 ];
 
-// Hourly snapshots: evening peak, slow overnight, with a busier last week
+// Hourly snapshots over both demo cycles: evening peak, slow overnight, a busier last week.
+// The previous cycle is scaled to go from 1000 to exactly 1500 kWh between its two readings.
 function points() {
-  const out = [];
-  let e = 1500 - 2;
-  for (let t = cycleStart - DAY; t <= now - 7 * 60e3; t += 3600e3) {
+  const raw = [];
+  let e = 0;
+  for (let t = bills[0].ts - DAY; t <= now - 7 * 60e3; t += 3600e3) {
     const h = new Date(t).getHours();
     // Repeatable day-to-day variation (0.7–1.3×) so days don't all look the same
     const day = Math.floor(t / DAY);
     const busy = (t > now - 7 * DAY ? 1.2 : 1) * (0.7 + 0.6 * (((Math.sin(day * 12.9898) * 43758.5453) % 1 + 1) % 1));
     const base = h >= 18 && h <= 23 ? 0.42 : h >= 9 && h <= 16 ? 0.12 : 0.18;
     e += base * busy * (0.8 + 0.4 * Math.abs(Math.sin(t / 7e6)));
-    if (t === cycleStart - (cycleStart % 3600e3)) e = 1500;
-    out.push({ ts: t, energy: Math.round(e * 1000) / 1000 });
+    raw.push({ ts: t, e });
   }
-  return out;
+  const at = ts => raw.find(p => p.ts >= ts).e;
+  const e0 = at(bills[0].ts), e1 = at(cycleStart);
+  return raw.map(p => ({
+    ts: p.ts,
+    energy: Math.round((p.ts < cycleStart ? 1000 + (p.e - e0) * 500 / (e1 - e0) : 1500 + (p.e - e1)) * 1000) / 1000,
+  }));
 }
 
 export async function mockCall(action, params) {
@@ -91,7 +116,8 @@ export async function mockCall(action, params) {
     case 'summary':
       // ?noaccess previews the "no access" screen
       if (new URLSearchParams(location.search).has('noaccess')) throw Object.assign(new Error("You don't have access to Past cycles yet."), { code: 403, need: 'past' });
-      return summary(me);
+      return summary(me, params);
+    case 'cycles': return { ok: true, cycles: summary(me).cycles };
     case 'requestAccess': return { ok: true, page: params.page, label: 'Past cycles', alreadyAsked: false };
     case 'saveBilling': {
       const p = points();

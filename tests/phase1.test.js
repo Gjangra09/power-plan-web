@@ -162,3 +162,20 @@ test('G3 an unknown cycle is refused', () => {
   const r = post(b, 'admin@example.com', { action: 'summary', cycle: 12345 });
   assert.deepEqual([r.code, r.error], [404, 'That bill cycle does not exist.']);
 });
+
+// ---------- G2: Bills → Breakdown (server) ----------
+
+test('G2 the breakdown comes only with Bill breakdown; current = so far + projected, past = final', () => {
+  const b = ready();
+  assert.equal(post(b, 'viewer@example.com', { action: 'summary' }).breakdown, undefined);
+  const cur = post(b, 'past@example.com', { action: 'summary' });
+  assert.deepEqual(Object.keys(cur.breakdown), ['soFar', 'projected']);
+  assert.equal(cur.breakdown.soFar.bill.total, cur.calc.chargesSoFar.total);
+  assert.equal(cur.breakdown.projected.bill.total, cur.calc.projectedBill.total);
+  const past = post(b, 'past@example.com', { action: 'summary', cycle: B1 });
+  assert.deepEqual(Object.keys(past.breakdown), ['final']);
+  const f = past.breakdown.final;
+  assert.equal(f.bill.total, b.ctx.Billing.billFor(f.units, f.days).total, 'final bill = engine on the cycle\'s units and days');
+  assert.equal(f.statement.payable, Math.round(f.bill.total), 'no arrears/sundry until the DHBVN bill is uploaded');
+  assert.ok(f.bill.slabLines.length >= 1 && f.whatIf.nextUnit > 0);
+});

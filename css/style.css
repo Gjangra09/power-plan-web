@@ -325,3 +325,40 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- bill-cycle picker ---------- */
+.cyclebar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; max-width: 1160px; margin: 0.9rem auto 0; padding: 0 16px; }
+.cyclebar__pick { display: flex; align-items: center; gap: 0.5rem; flex: 1 1 320px; min-width: 0; }
+.cyclebar__label { color: var(--text-muted); font-size: 0.82rem; white-space: nowrap; }
+.cyclebar select { flex: 1; min-width: 0; text-overflow: ellipsis; }
+.cyclebar__step { font: inherit; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 10px; width: 36px; height: 36px; cursor: pointer; }
+.cyclebar__step:disabled { opacity: 0.35; cursor: default; }
+.cyclebar__live { color: var(--green); }
+.btn--small { padding: 0.4rem 0.9rem; font-size: 0.85rem; }
+
+/* ---------- Bills page ---------- */
+.page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
+.page-head h1 { margin: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid2 > .panel { margin-bottom: 16px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem 1.25rem; margin: 0.25rem 0 0; }
+.facts dt { color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.facts dd { margin: 0.1rem 0 0; font-weight: 600; }
+.bill-table { width: 100%; }
+.bill-table td.num, .bill-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.bill-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+.bill-table__total td { font-weight: 700; }
+.whatif { margin: 0; padding-left: 1.2rem; line-height: 1.7; }
+
+@media (max-width: 640px) {
+  .cyclebar__label { display: none; }
+  .grid2 { grid-template-columns: 1fr; }
+}
+
+/* Printing the Bills page: just the bill */
+@media print {
+  body { background: #fff !important; color: #000; }
+  .top, .cyclebar, .seg, .status, .no-print, #demo { display: none !important; }
+  .panel { background: #fff !important; border: 1px solid #999; box-shadow: none; animation: none; break-inside: avoid; }
+  .muted, .muted-sm, .facts dt { color: #444 !important; }
+}

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  billFor, billForParts, tariffParts, payableFor, paisa, normalizeTariff,
+  billFor, billForParts, tariffParts, payableFor, paisa, normalizeTariff, whatIf, cycleBreakdown,
   avgCycleDays, cycleSummary, energyAt, dayKey, DEFAULT_TARIFF,
 } from '../js/billing.js';
 
@@ -155,4 +155,39 @@ test('meter factor scales logged units like Power BI Summary[Diff] (× 1.02)', (
   const s = cycleSummary({ cycleStart: start, startEnergy: 1000, cycleEnd: new Date(start.getTime() + 60 * DAY), points, now: points[1].ts });
   assert.ok(Math.abs(s.unitsSoFar - 10.2) < 1e-9);
   assert.deepEqual(s.days.map(d => Math.round(d.units * 100) / 100), [5.1, 5.1]);
+});
+
+// ---------- Bills page: what would change the bill, statement ----------
+
+test('whatIf: 496.6 units in 63 days – band B, 2nd slab, 133.4 units to the next slab, FPPAS already on', () => {
+  const w = whatIf(496.6, 63);
+  assert.equal(w.band, 'B');
+  assert.deepEqual([w.slab.rate, paisa(w.slab.unitsLeft), w.slab.nextRate], [5.25, 133.4, 6.45]);
+  assert.equal(w.bandB, null, 'already band B');
+  assert.equal(paisa(w.fppas), -76.6, 'FPPAS line was 420 units');
+  assert.equal(paisa(w.fixed), 133.4, 'fixed charge starts above 630 units');
+  assert.equal(w.nextUnit, paisa(billFor(497.6, 63).total - billFor(496.6, 63).total));
+  assert.ok(w.nextUnit > 5.25 && w.nextUnit < 6.5, 'rate + FPPAS + tax + duty');
+});
+
+test('whatIf: band A (2.5 units/day) shows the units left before band B', () => {
+  const w = whatIf(150, 60);
+  assert.deepEqual([w.band, w.slab.rate], ['A', 2.70]);
+  assert.equal(paisa(w.bandB), 49.8);
+});
+
+test('cycleBreakdown: a closed cycle gives the final bill and the DHBVN payable with arrears and sundry', () => {
+  const s = { tariff: DEFAULT_TARIFF, chargesSoFar: billFor(496.6, 63), unitsSoFar: 496.6, daysElapsed: 63 };
+  const b = cycleBreakdown(s, false, { arrears: 0.03, sundry: 0 });
+  assert.deepEqual(Object.keys(b), ['final']);
+  assert.deepEqual([b.final.statement.total, b.final.statement.gross, b.final.statement.payable], [2208.03, 2208.06, 2208]);
+  assert.equal(b.final.bill.slabLines.length, 2);
+});
+
+test('cycleBreakdown: the current cycle gives "so far" and "projected"', () => {
+  const s = { tariff: DEFAULT_TARIFF, chargesSoFar: billFor(150, 30), unitsSoFar: 150, daysElapsed: 30, projectedBill: billFor(300, 60), projectedUnits: 300, cycleDays: 60 };
+  const b = cycleBreakdown(s, true);
+  assert.deepEqual(Object.keys(b), ['soFar', 'projected']);
+  assert.equal(b.projected.statement.payable, Math.round(billFor(300, 60).total));
+  assert.equal(b.soFar.statement.arrears, 0);
 });

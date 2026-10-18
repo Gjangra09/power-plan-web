@@ -2,19 +2,28 @@
 // The server calculates the cycle (data.calc); this page only displays it. The same engine runs
 // here only for demo data and older backends.
 import { boot, el, inr, num, dateTime, dateOnly, shortDate, showError } from './ui.js';
+import { call } from './api.js';
 import { cycleSummary, avgCycleDays, normalizeTariff, DEFAULT_TARIFF } from './billing.js';
+import { cycleParam, renderCycleBar, previousCycle } from './cycle.js';
 
 const DAY = 86400e3;
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-boot().then(render).catch(() => { /* error already shown */ });
+boot('summary', cycleParam() ? { cycle: cycleParam() } : {}).then(render).catch(() => { /* error already shown */ });
 
 function render(data) {
   const bills = data.bills;
   const bill = bills[bills.length - 1];
+  const shown = data.cycle || (bill ? { start: bill.ts, current: true } : null);
+  if (data.cycles && shown) renderCycleBar(data.cycles, shown);
+  // A closed cycle shows its final figures (no projection)
+  const past = !!(shown && !shown.current);
+  if (past && !data.calc) {
+    return stop('The logger has no readings for this cycle (it started later), so its units can\'t be shown here. Its DHBVN bill appears on the Bills page once uploaded.');
+  }
   if (!bill) return stop('No billing date yet. An admin can add one on the Admin page.');
-  if (bill.startEnergy == null) {
+  if (!past && bill.startEnergy == null) {
     return stop(`The last billing time (${dateTime(bill.ts)}) is outside the logged readings, so units since billing cannot be measured. Set a newer billing time on the Admin page.`);
   }
 
@@ -29,12 +38,14 @@ function render(data) {
   });
   const tariff = normalizeTariff(s.tariff || data.tariff);
 
+  const prev = previousCycle(data.cycles, shown);
   setupChartDefaults();
-  renderHero(s, bill, typicalDays, data.serverTime);
-  renderKpis(s, tariff);
-  renderLimits(s);
-  renderUsage(s);
-  renderCharges(s);
+  if (past) renderPastHero(s, data.quality);
+  else renderHero(s, bill, typicalDays, data.serverTime);
+  renderKpis(s, tariff, past, prev);
+  renderLimits(s, past);
+  renderUsage(s, prev);
+  renderCharges(s, past);
 }
 
 /** The server's cycleSummary arrives as JSON: turn its times back into Dates. */
@@ -76,6 +87,31 @@ function renderHero(s, bill, typicalDays, now) {
     `Cycle started ${dateTime(bill.ts)} · next reading ≈ ${dateOnly(s.cycleEnd)} (${endNote}) · last reading ${dateTime(s.latestTs)}`;
 }
 
+/** Hero for a closed cycle: the final bill, units and days, how complete the logger data was. */
+function renderPastHero(s, quality) {
+  document.getElementById('heroLabel').textContent = `Final bill · ${dateOnly(s.cycleStart)} → ${dateOnly(s.cycleEnd)}`;
+  countUp(document.getElementById('heroBill'), s.chargesSoFar.total, inr);
+  document.getElementById('heroSub').textContent =
+    `${num(s.unitsSoFar, 1)} units in ${num(s.cycleDays, 1)} days · ${num(s.growingAvg, 2)} units/day · band ${s.chargesSoFar.band}`;
+  document.getElementById('chipSoFar').replaceChildren(el('strong', {}, inr(s.chargesSoFar.total)), ' final');
+  document.getElementById('chipUnits').replaceChildren(el('strong', {}, `${num(s.unitsSoFar, 1)} kWh`), ' used');
+  const health = document.getElementById('health');
+  const share = quality ? quality.share : 1;
+  health.className = 'chip health ' + (share >= 0.9 ? 'health--ok' : share >= 0.6 ? 'health--warn' : 'health--bad');
+  health.textContent = `Closed cycle · logger data for ${Math.round(share * 100)}% of hours`;
+  health.title = 'Gaps never lose units (the meter keeps counting); they only move units between days.';
+  const ring = document.getElementById('ring');
+  ring.setAttribute('aria-label', `${Math.round(s.cycleDays)}-day cycle, closed`);
+  ring.innerHTML = `
+    <svg viewBox="0 0 168 168" aria-hidden="true">
+      <circle class="ring__track" cx="84" cy="84" r="70"/>
+      <circle class="ring__bar" cx="84" cy="84" r="70" stroke-dasharray="${2 * Math.PI * 70}" stroke-dashoffset="0" style="stroke: var(--text-muted)"/>
+    </svg>
+    <div class="ring__label"><div class="ring__big">${Math.round(s.cycleDays)}</div><div class="ring__small">days<br>closed cycle</div></div>`;
+  document.getElementById('cycle').textContent =
+    `Cycle ${dateTime(s.cycleStart)} → ${dateTime(s.cycleEnd)} (meter readings) · final figures`;
+}
+
 // Progress ring: how far through the bill cycle we are
 function renderRing(s) {
   const r = 70, c = 2 * Math.PI * r;
@@ -114,22 +150,29 @@ const icon = name => {
   return span;
 };
 
-function renderKpis(s, tariff) {
+function renderKpis(s, tariff, past, prev) {
   const faster = s.avg7 > s.growingAvg * 1.05, slower = s.avg7 < s.growingAvg * 0.95;
   const f = s.fppas;
   const fppas = f.unitsLeft <= 0
-    ? { value: num(-f.unitsLeft, 0), unit: 'units over', sub: `FPPAS applies – the line was ${num(f.limit, 0)} units`, tone: 'bad', icon: 'alert', accent: '--red' }
-    : f.projectedOver
-      ? { value: num(f.unitsLeft, 0), unit: 'units left', sub: `On pace to cross – keep under ${num(f.safePerDay, 2)}/day`, tone: 'warn', icon: 'alert', accent: '--amber' }
-      : { value: num(f.unitsLeft, 0), unit: 'units left', sub: `Safe – keep under ${num(f.safePerDay, 2)} units/day`, tone: 'ok', icon: 'shield', accent: '--green' };
+    ? { value: num(-f.unitsLeft, 0), unit: 'units over', sub: `FPPAS ${past ? 'was charged' : 'applies'} – the line was ${num(f.limit, 0)} units`, tone: 'bad', icon: 'alert', accent: '--red' }
+    : past
+      ? { value: num(f.unitsLeft, 0), unit: 'units under', sub: `No FPPAS – the line was ${num(f.limit, 0)} units`, tone: 'ok', icon: 'shield', accent: '--green' }
+      : f.projectedOver
+        ? { value: num(f.unitsLeft, 0), unit: 'units left', sub: `On pace to cross – keep under ${num(f.safePerDay, 2)}/day`, tone: 'warn', icon: 'alert', accent: '--amber' }
+        : { value: num(f.unitsLeft, 0), unit: 'units left', sub: `Safe – keep under ${num(f.safePerDay, 2)} units/day`, tone: 'ok', icon: 'shield', accent: '--green' };
+  // Pace against the previous cycle (both per day, so cycles of different length compare fairly)
+  const change = prev && prev.avgPerDay ? s.growingAvg / prev.avgPerDay - 1 : null;
+  const vsPrev = change == null ? '' : ` · ${change >= 0 ? '▲' : '▼'} ${num(Math.abs(change) * 100, 0)}% vs previous cycle`;
 
   const cards = [
-    { label: 'Units since last bill', n: s.unitsSoFar, fmt: v => num(v, 1), unit: 'kWh', sub: `since ${dateTime(s.cycleStart)}`, icon: 'bolt', accent: '--amber' },
-    { label: 'Growing average', n: s.growingAvg, fmt: v => num(v, 2), unit: 'units/day', sub: `≈ ${num(s.growingAvg * 30, 0)} units/month`, icon: 'trend', accent: '--teal' },
-    { label: 'Last 7 days', n: s.avg7, fmt: v => num(v, 2), unit: 'units/day',
+    { label: past ? 'Units this cycle' : 'Units since last bill', n: s.unitsSoFar, fmt: v => num(v, 1), unit: 'kWh',
+      sub: past ? `${dateOnly(s.cycleStart)} → ${dateOnly(s.cycleEnd)}` : `since ${dateTime(s.cycleStart)}`, icon: 'bolt', accent: '--amber' },
+    { label: past ? 'Average' : 'Growing average', n: s.growingAvg, fmt: v => num(v, 2), unit: 'units/day', sub: `≈ ${num(s.growingAvg * 30, 0)} units/month${vsPrev}`, icon: 'trend', accent: '--teal' },
+    { label: past ? 'Last 7 days of the cycle' : 'Last 7 days', n: s.avg7, fmt: v => num(v, 2), unit: 'units/day',
       sub: faster ? '▲ faster than the cycle average' : slower ? '▼ slower than the cycle average' : '≈ in line with the cycle average',
       tone: faster ? 'warn' : 'ok', icon: 'pulse', accent: '--violet' },
-    { label: 'Charges so far', n: s.chargesSoFar.total, fmt: inr, sub: `if the meter were read today${s.chargesSoFar.fppas > 0 ? ' (incl. FPPAS)' : ''}`, icon: 'wallet', accent: '--coral' },
+    { label: past ? 'Final bill' : 'Charges so far', n: s.chargesSoFar.total, fmt: inr,
+      sub: past ? `at the ${dateOnly(s.cycleEnd)} reading${s.chargesSoFar.fppas > 0 ? ' (incl. FPPAS)' : ''}` : `if the meter were read today${s.chargesSoFar.fppas > 0 ? ' (incl. FPPAS)' : ''}`, icon: 'wallet', accent: '--coral' },
     { label: `FPPAS line · ${tariff.fppasFromMonthly}/month`, ...fppas },
   ];
 
@@ -161,7 +204,7 @@ function countUp(node, target, fmt, ms = 1100) {
 
 // Units used and projected for the whole cycle against the FPPAS line
 // (band B is left out: every cycle crosses 100 units/month)
-function renderLimits(s) {
+function renderLimits(s, past) {
   const max = Math.max(s.fppas.limit, s.projectedUnits) * 1.08;
   const pct = x => `${Math.min(x / max, 1) * 100}%`;
   const used = el('div', { class: 'meter__used', style: 'width:0' });
@@ -171,7 +214,7 @@ function renderLimits(s) {
       el('div', { class: 'meter__mark meter__mark--f', style: `left:${pct(s.fppas.limit)}` }, el('span', {}, `FPPAS ${num(s.fppas.limit, 0)}`))),
     el('div', { class: 'meter__legend' },
       el('span', { class: 'swatch swatch--used' }, `Used ${num(s.unitsSoFar, 0)} units`),
-      el('span', { class: 'swatch swatch--proj' }, `Projected ${num(s.projectedUnits, 0)} by ${dateOnly(s.cycleEnd)}`)));
+      past ? '' : el('span', { class: 'swatch swatch--proj' }, `Projected ${num(s.projectedUnits, 0)} by ${dateOnly(s.cycleEnd)}`)));
   requestAnimationFrame(() => requestAnimationFrame(() => {
     proj.style.width = pct(s.projectedUnits);
     used.style.width = pct(s.unitsSoFar);
@@ -234,23 +277,52 @@ function toggle(id, options, onChange) {
 }
 
 // Units per day: chart or table
-function renderUsage(s) {
+function renderUsage(s, prev) {
   const chartBox = document.getElementById('usageChartBox');
   const tableBox = document.getElementById('usageTableBox');
+  const note = document.getElementById('usageNote');
   renderDailyTable(s);
-  let chart = null;
-  toggle('usageView', [{ value: 'chart', label: 'Chart' }, { value: 'table', label: 'Table' }], view => {
-    chartBox.hidden = view !== 'chart';
+  let chart = null, prevDays = null;
+  const views = [{ value: 'chart', label: 'Chart' }, { value: 'table', label: 'Table' }];
+  if (prev && prev.units != null) views.push({ value: 'compare', label: 'vs previous cycle' });
+  toggle('usageView', views, async view => {
+    chartBox.hidden = view === 'table';
     tableBox.hidden = view !== 'table';
-    document.getElementById('usageNote').textContent = view === 'chart'
-      ? 'Bars: units used each day. Line: average per day since the bill.'
-      : 'Every day of this cycle, newest first. Charge = units × this cycle\'s projected average rate.';
-    if (view === 'chart' && !chart) chart = renderUsageChart(s);   // Chart.js needs a visible canvas to size itself
+    if (chart) { chart.destroy(); chart = null; }
+    if (view === 'table') {
+      note.textContent = 'Every day of this cycle, newest first. Charge = units × this cycle\'s projected average rate.';
+    } else if (view === 'compare') {
+      note.textContent = `Units per day of the cycle: this cycle (bars) and the previous one (line, ${dateOnly(prev.start)} → ${dateOnly(prev.end)}), day 1 = the meter reading.`;
+      try {
+        prevDays = prevDays || (await call('summary', { cycle: prev.start })).calc.days;
+        chart = renderCompareChart(s, prevDays);
+      } catch (err) { note.textContent = err.message; }
+    } else {
+      note.textContent = 'Bars: units used each day. Line: average per day since the bill.';
+      chart = renderUsageChart(s);   // Chart.js needs a visible canvas to size itself
+    }
+  });
+}
+
+/** This cycle's daily units against the previous cycle's, both by day of the cycle. */
+function renderCompareChart(s, prevDays) {
+  const n = Math.max(s.days.length, prevDays.length);
+  const full = vGradient('rgba(255, 209, 102, 0.95)', 'rgba(255, 138, 61, 0.35)');
+  return new Chart(document.getElementById('usageChart'), {
+    data: {
+      labels: Array.from({ length: n }, (_, i) => `Day ${i + 1}`),
+      datasets: [
+        { type: 'bar', label: 'This cycle', data: s.days.map(d => d.units), order: 2, backgroundColor: full, borderRadius: 6, borderSkipped: false, maxBarThickness: 26 },
+        { type: 'line', label: 'Previous cycle', data: prevDays.map(d => d.units), order: 1, borderColor: css('--violet'), backgroundColor: css('--violet'), borderDash: [6, 5], pointRadius: 0, pointHoverRadius: 5, borderWidth: 2, tension: 0.3 },
+      ],
+    },
+    options: baseOptions('units', false),
   });
 }
 
 function renderUsageChart(s) {
-  const today = s.days.length - 1;
+  // the last day is still running only in the current cycle
+  const today = s.daysLeft > 0 ? s.days.length - 1 : -1;
   const full = vGradient('rgba(255, 209, 102, 0.95)', 'rgba(255, 138, 61, 0.35)');
   return new Chart(document.getElementById('usageChart'), {
     data: {
@@ -278,7 +350,7 @@ function renderDailyTable(s) {
   document.getElementById('daily').replaceChildren(
     el('thead', {}, el('tr', {}, el('th', {}, 'Date'), el('th', { class: 'num' }, 'Units'), el('th', { class: 'num' }, 'Growing avg'), el('th', { class: 'num' }, 'Charge'))),
     el('tbody', {}, ...rows.map((d, i) => el('tr', {},
-      el('td', {}, i === 0 ? `${shortDate(d.date)} (so far)` : shortDate(d.date)),
+      el('td', {}, i === 0 && s.daysLeft > 0 ? `${shortDate(d.date)} (so far)` : shortDate(d.date)),
       el('td', { class: 'num' }, num(d.units, 2)),
       el('td', { class: 'num' }, num(d.growingAvg, 2)),
       el('td', { class: 'num' }, inr(d.units * rate))))));
@@ -291,7 +363,7 @@ function cycleRate(s) {
 }
 
 // Bill: cumulative or day by day
-function renderCharges(s) {
+function renderCharges(s, past) {
   const note = document.getElementById('chargesNote');
   let chart = null;
   toggle('chargesView', [{ value: 'cumulative', label: 'Cumulative' }, { value: 'daily', label: 'Day by day' }], view => {
@@ -301,7 +373,9 @@ function renderCharges(s) {
       note.textContent = `Each day's units × ₹${num(rate, 2)}/unit (this cycle's projected average rate). Faded bars are projected days.`;
       chart = dailyChargesChart(s, rate);
     } else {
-      note.textContent = `${inr(s.chargesSoFar.total)} so far → about ${inr(s.projectedBill.total)} at the ${dateOnly(s.cycleEnd)} reading.`;
+      note.textContent = past
+        ? `How this cycle's bill grew to ${inr(s.chargesSoFar.total)} by the ${dateOnly(s.cycleEnd)} reading.`
+        : `${inr(s.chargesSoFar.total)} so far → about ${inr(s.projectedBill.total)} at the ${dateOnly(s.cycleEnd)} reading.`;
       chart = cumulativeChargesChart(s);
     }
   });
@@ -331,7 +405,7 @@ function cumulativeChargesChart(s) {
 
 function dailyChargesChart(s, rate) {
   const { actualKeys, keys } = cycleKeys(s);
-  const today = actualKeys.length - 1;
+  const today = s.daysLeft > 0 ? actualKeys.length - 1 : -1;
   const actual = keys.map((k, i) => i < actualKeys.length ? s.days[i].units * rate : null);
   const projected = keys.map((k, i) => i < actualKeys.length ? null : s.growingAvg * rate);
   const full = vGradient('rgba(255, 122, 89, 0.95)', 'rgba(255, 92, 122, 0.35)');

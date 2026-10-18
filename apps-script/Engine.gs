@@ -125,6 +125,45 @@ var Billing = (function () {
     return { gross, payable, carry: paisa(gross - payable) };
   }
 
+  /**
+   * What would change a bill of `units` over `days`: units left in the current slab, before band B,
+   * the FPPAS line and the fixed charge (≤ 0 = already crossed), and what one more unit adds (₹).
+   */
+  function whatIf(units, days, tariff = DEFAULT_TARIFF) {
+    if (!(days > 0)) return null;
+    const bill = billFor(units, days, tariff);
+    const avg = units / days;
+    const slabs = tariff.slabs[bill.band];
+    const i = Math.max(0, slabs.findIndex(s => avg < s.to));
+    const slab = slabs[i], next = slabs[i + 1];
+    return {
+      band: bill.band, avgDaily: avg,
+      slab: { rate: slab.rate, unitsLeft: Number.isFinite(slab.to) ? slab.to * days - units : null, nextRate: next ? next.rate : null },
+      bandB: bill.band === 'A' ? tariff.bandBAbovePerDay * days - units : null,
+      fppas: tariff.fppasFromMonthly / 30 * days - units,
+      fixed: tariff.fixedAboveMonthly / 30 * days - units,
+      nextUnit: paisa(billFor(units + 1, days, tariff).total - bill.total),
+    };
+  }
+
+  /**
+   * The Bills page breakdown of a cycleSummary result: for the current cycle "so far" and
+   * "projected", for a closed cycle "final". Each has the bill (slab lines + components), the
+   * statement (arrears A + bill B + sundry C → payable) and whatIf. Arrears and sundry come from
+   * the uploaded DHBVN bill when there is one, else 0.
+   */
+  function cycleBreakdown(s, current, extras = {}) {
+    const arrears = extras.arrears || 0, sundry = extras.sundry || 0;
+    const part = (bill, units, days) => ({
+      bill, units, days,
+      statement: Object.assign({ arrears, total: bill.total, sundry }, payableFor(bill.total, arrears, sundry)),
+      whatIf: whatIf(units, days, s.tariff),
+    });
+    return current
+      ? { soFar: part(s.chargesSoFar, s.unitsSoFar, Math.max(s.daysElapsed, 1)), projected: part(s.projectedBill, s.projectedUnits, s.cycleDays) }
+      : { final: part(s.chargesSoFar, s.unitsSoFar, s.daysElapsed) };
+  }
+
   /** Average length in days between consecutive bill dates (Date objects, any order). */
   function avgCycleDays(billDates) {
     const t = billDates.map(d => d.getTime()).sort((a, b) => a - b);
@@ -258,7 +297,7 @@ var Billing = (function () {
     return new Date(t - (((t % DAY_MS) + DAY_MS) % DAY_MS) - IST_OFFSET_MS);
   }
 
-  return { DEFAULT_TARIFF, normalizeTariff, paisa, billFor, billForParts, tariffParts, payableFor, avgCycleDays, dayKey, cycleSummary, energyAt };
+  return { DEFAULT_TARIFF, normalizeTariff, paisa, billFor, billForParts, tariffParts, payableFor, whatIf, cycleBreakdown, avgCycleDays, dayKey, cycleSummary, energyAt };
 })();
 
 // ---- js/quality.js ----

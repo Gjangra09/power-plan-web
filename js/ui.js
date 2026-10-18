@@ -1,6 +1,7 @@
 // Shared page chrome and formatting.
 import { signIn, signOut, clearSession, currentSession, call, isDemo } from './api.js';
 import { CONFIG } from './config.js';
+import { withCycle } from './cycle.js';
 
 // UAT pages carry a ribbon and a title prefix so a test version is never mistaken for prod
 if (CONFIG.env === 'uat') {
@@ -119,8 +120,10 @@ function renderProfile(me, exp) {
 }
 
 // The menu: each page and who may open it (the server enforces the same rules)
+const can = (me, page) => me.role === 'admin' || (me.pages || []).includes(page);
 const NAV = [
   { key: 'summary', href: './', label: 'Summary', allowed: () => true },
+  { key: 'bills', href: 'bills.html', label: 'Bills', allowed: me => can(me, 'breakdown') || can(me, 'documents') },
   { key: 'admin', href: 'admin.html', label: 'Admin', allowed: me => me.role === 'admin' },
 ];
 
@@ -129,7 +132,7 @@ export function renderNav(me, current) {
   const nav = document.getElementById('nav');
   if (!nav) return;
   nav.replaceChildren(...NAV.filter(p => p.allowed(me)).map(p =>
-    el('a', { href: p.href, 'aria-current': p.key === current ? 'page' : null }, p.label)));
+    el('a', { href: withCycle(p.href), 'aria-current': p.key === current ? 'page' : null }, p.label)));
 }
 
 /**

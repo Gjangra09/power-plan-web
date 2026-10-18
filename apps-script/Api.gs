@@ -200,8 +200,14 @@ function pastSummary_(bills, i, user, pages, now) {
 /** Adds the cycle list for the picker and leaves out what the person may not see. */
 function finishSummary_(out, pages) {
   if (pages.includes('past')) out.cycles = cycles_();
+  if (out.calc && pages.includes('breakdown')) out.breakdown = Billing.cycleBreakdown(out.calc, out.cycle.current, billExtras_(out.cycle));
   if (out.calc && !pages.includes('breakdown')) stripSlabLines_(out.calc);
   return out;
+}
+
+/** Arrears (A) and sundry (C) for a cycle, from its confirmed DHBVN bill (Phase 1C); none yet otherwise. */
+function billExtras_(cycle) {
+  return {};
 }
 
 /** Removes the slab-by-slab lines (Bill breakdown page) from a calculation, in place. */
