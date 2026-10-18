@@ -269,13 +269,68 @@ function notify_(key, state, text) {
       const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
         method: 'post', payload: { chat_id: chat, text: full }, muteHttpExceptions: true,
       });
-      delivery = res.getResponseCode() === 200 ? 'sent' : 'failed (HTTP ' + res.getResponseCode() + ')';
+      delivery = res.getResponseCode() === 200 ? 'sent' : `failed (HTTP ${res.getResponseCode()}${telegramReason_(res)})`;
     }
     addRow_(tab_('Alerts'), [new Date(), key, state, full, delivery]);
   } catch (err) {
     console.error('Alert failed: ' + (err && err.message));
   }
   return delivery;
+}
+
+/** Telegram's own reason for a refusal, e.g. ": Bad Request: chat not found" (never the token). */
+function telegramReason_(res) {
+  try { const d = JSON.parse(res.getContentText()).description; return d ? ': ' + String(d).slice(0, 120) : ''; } catch (e) { return ''; }
+}
+
+// ---------- Telegram settings (Admin → Telegram) ----------
+// The bot token is a password: it can be set or replaced but is never sent back to the
+// browser, shown, or written to the Activity log.
+
+function telegramStatus_() {
+  const p = PropertiesService.getScriptProperties();
+  const chatId = p.getProperty('TELEGRAM_CHAT_ID') || '';
+  const tokenSet = !!p.getProperty('TELEGRAM_BOT_TOKEN');
+  return { configured: tokenSet && !!chatId, tokenSet, chatId, botName: p.getProperty('TELEGRAM_BOT_NAME') || '' };
+}
+
+/** Saves the chat ID and (when given) a new token, after Telegram confirms the token. */
+function saveTelegram_(req) {
+  const p = PropertiesService.getScriptProperties();
+  const before = telegramStatus_();
+  const token = String(req.token || '').trim();
+  const chatId = String(req.chatId || '').trim();
+  if (!/^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$/.test(chatId)) throw httpError_(400, 'Chat ID is a number (e.g. 123456789, or -100… for a group) or @channelname.');
+  if (!token && !before.tokenSet) throw httpError_(400, 'Enter the bot token from @BotFather.');
+  let botName = before.botName;
+  if (token) {
+    if (!/^\d{5,15}:[A-Za-z0-9_-]{30,50}$/.test(token)) throw httpError_(400, 'That does not look like a bot token (it looks like 123456789:ABC…).');
+    const res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getMe', { muteHttpExceptions: true });
+    let info = null;
+    try { info = JSON.parse(res.getContentText()); } catch (e) { /* handled below */ }
+    if (res.getResponseCode() !== 200 || !info || !info.ok) throw httpError_(400, 'Telegram did not accept this bot token' + telegramReason_(res) + '.');
+    botName = '@' + info.result.username;
+    p.setProperty('TELEGRAM_BOT_TOKEN', token);
+    p.setProperty('TELEGRAM_BOT_NAME', botName);
+  }
+  p.setProperty('TELEGRAM_CHAT_ID', chatId);
+  const changes = [];
+  if (token) changes.push(before.tokenSet ? `bot token replaced (${before.botName || 'bot'} → ${botName})` : `bot token set (${botName})`);
+  if (chatId !== before.chatId) changes.push(`chat ${before.chatId || 'none'} → ${chatId}`);
+  return Object.assign(telegramStatus_(), { details: changes.join(' · ') || 'no change' });
+}
+
+function removeTelegram_() {
+  const before = telegramStatus_();
+  const p = PropertiesService.getScriptProperties();
+  ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_BOT_NAME', 'TELEGRAM_CHAT_ID'].forEach(k => p.deleteProperty(k));
+  return Object.assign(telegramStatus_(), { details: `${before.botName || 'bot'}, chat ${before.chatId || 'none'} → not set up (alerts only listed in the Alerts tab)` });
+}
+
+function testTelegram_(req, user) {
+  if (!telegramStatus_().configured) throw httpError_(400, 'Save a bot token and chat ID first.');
+  const delivery = notify_('test', 'test', `Test message from the Admin page (${user.email}): alerts from the app reach this chat.`);
+  return { delivery };
 }
 
 /** Run from the editor: sends a test message to the Telegram chat. */

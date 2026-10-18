@@ -27,6 +27,10 @@ const ACTIONS = {
   setCorrectionActive: { role: 'admin', fn: setCorrectionActive_ },
   getAlertSettings:    { role: 'admin', fn: alertSettings_ },
   saveAlertSettings:   { role: 'admin', fn: saveAlertSettings_ },
+  getTelegram:         { role: 'admin', fn: telegramStatus_ },
+  saveTelegram:        { role: 'admin', fn: saveTelegram_ },
+  removeTelegram:      { role: 'admin', fn: removeTelegram_ },
+  testTelegram:        { role: 'admin', fn: testTelegram_ },
 };
 
 // What goes into the Activity tab for each action: [type, event, details (before → after)], or null to skip
@@ -41,6 +45,9 @@ const ACTIVITY = {
   saveCorrection:      (req, r) => ['change', `Added data correction ${r.saved.id}`, r.details],
   setCorrectionActive: (req, r) => ['change', `Turned data correction ${r.id} ${r.active ? 'on' : 'off'}`, r.details],
   saveAlertSettings:   (req, r) => ['change', 'Changed alert settings', r.details],
+  saveTelegram:        (req, r) => ['change', 'Changed Telegram alerts', r.details],
+  removeTelegram:      (req, r) => ['change', 'Removed Telegram alerts', r.details],
+  testTelegram:        (req, r) => ['change', 'Sent a Telegram test message', r.delivery],
 };
 
 const SESSION_RENEW_MS = 15 * 86400e3; // renew when less than this is left
@@ -277,14 +284,15 @@ function tariffVersions_() {
   return rows;
 }
 
-/** Newest activity first, optionally for one email and/or one type. */
+/** Newest activity first, optionally for one email, one type and the last `days` days (0 = all kept). */
 function listActivity_(req) {
   const email = String(req.email || '').toLowerCase();
   const type = String(req.type || '');
-  const rows = recentActivity_(3000)
-    .filter(a => (!email || a.email === email) && (!type || a.type === type))
-    .slice(0, Math.min(Number(req.limit) || 300, 1000));
-  return { activity: rows };
+  const days = Number(req.days) || 0;
+  const since = days ? Date.now() - days * 86400e3 : 0;
+  const rows = recentActivity_(APP.ACTIVITY_MAX_ROWS + 500)
+    .filter(a => a.ts >= since && (!email || a.email === email) && (!type || a.type === type));
+  return { activity: rows.slice(0, Math.min(Number(req.limit) || 1000, 1000)), total: rows.length };
 }
 
 function usersWithLastSeen_() {

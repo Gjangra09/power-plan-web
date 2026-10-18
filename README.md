@@ -45,7 +45,7 @@ Tests: `npm test`. The tariff engine reproduces all six real DHBVN bills.
 6. **Deploy → New deployment → Web app**: Execute as **Me**, Who has access **Anyone**. Copy the URL ending in `/exec`.
    ("Anyone" only lets the request reach the script. The script still rejects anyone who isn't signed in and listed in Users.)
 
-7. Optional – alerts on Telegram (the same chat the ESP uses): add Script Properties `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then run `sendTestAlert`. Without them, alerts are only written to the Alerts tab.
+7. Optional – alerts on Telegram (the same chat the ESP uses): **Admin → Telegram**, enter the bot token and chat ID, Save, then **Send test**. The token is checked with Telegram and never shown again. Without it, alerts are only listed on the Admin page.
 8. After every code update run `phase0Check`: it adds any new tabs/columns, makes sure the timers exist, checks the server engine against the 6 DHBVN bills and logs the current cycle.
 
 ### 3. Frontend

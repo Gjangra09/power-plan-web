@@ -209,6 +209,60 @@ test('D5 Admin → Alerts shows the settings and what was sent in the last 7 day
   assert.throws(() => b.ctx.saveAlertSettings_({ alertMinutes: 2.5, remindMinutes: 30 }), /whole number/);
 });
 
+// ---------- Admin → Telegram ----------
+const TOKEN = '123456789:AAValidTokenForTestsOnly_abcdefghijkl';
+
+test('Telegram: the token is checked with Telegram, saved, and never sent back or logged', () => {
+  const b = ready({ telegram: false });
+  const r = b.ctx.saveTelegram_({ token: TOKEN, chatId: '42' });
+  assert.equal(r.configured, true);
+  assert.equal(r.botName, '@pp_test_bot');
+  assert.equal(r.details, 'bot token set (@pp_test_bot) · chat none → 42');
+  assert.equal(b.props.get('TELEGRAM_BOT_TOKEN'), TOKEN);
+  assert.ok(!JSON.stringify(r).includes(TOKEN) && !JSON.stringify(b.ctx.telegramStatus_()).includes(TOKEN), 'token never returned');
+  b.ctx.logActivity_({ email: 'a@example.com' }, {}, ['change', 'Changed Telegram alerts', r.details]);
+  assert.ok(!JSON.stringify(b.tab('Activity').rows).includes(TOKEN), 'token never logged');
+  // change only the chat: the saved token is kept
+  assert.equal(b.ctx.saveTelegram_({ token: '', chatId: '43' }).details, 'chat 42 → 43');
+  assert.equal(b.props.get('TELEGRAM_BOT_TOKEN'), TOKEN);
+});
+
+test('Telegram: a token Telegram rejects, or bad formats, are refused and nothing changes', () => {
+  const b = ready({ telegram: false });
+  assert.throws(() => b.ctx.saveTelegram_({ token: '123456789:AABadTokenForTestsOnly_abcdefghijklmn', chatId: '42' }), /did not accept this bot token: Unauthorized/);
+  assert.throws(() => b.ctx.saveTelegram_({ token: 'not-a-token', chatId: '42' }), /does not look like a bot token/);
+  assert.throws(() => b.ctx.saveTelegram_({ token: TOKEN, chatId: 'hello' }), /Chat ID is a number/);
+  assert.throws(() => b.ctx.saveTelegram_({ token: '', chatId: '42' }), /Enter the bot token/);
+  assert.equal(b.props.get('TELEGRAM_BOT_TOKEN'), undefined);
+});
+
+test('Telegram: the test button reports delivery, including Telegram\'s reason when it fails', () => {
+  const b = ready({ telegram: false });
+  assert.throws(() => b.ctx.testTelegram_({}, { email: 'a@example.com' }), /Save a bot token/);
+  b.ctx.saveTelegram_({ token: TOKEN, chatId: '42' });
+  assert.equal(b.ctx.testTelegram_({}, { email: 'a@example.com' }).delivery, 'sent');
+  assert.match(b.sent.at(-1).text, /^\[Power Plan UAT\] Test message from the Admin page/);
+  b.ctx.saveTelegram_({ token: '', chatId: '999' });
+  assert.equal(b.ctx.testTelegram_({}, { email: 'a@example.com' }).delivery, 'failed (HTTP 400: Bad Request: chat not found)');
+  const removed = b.ctx.removeTelegram_();
+  assert.equal(removed.configured, false);
+  assert.match(removed.details, /@pp_test_bot, chat 999 → not set up/);
+  assert.equal(b.props.get('TELEGRAM_BOT_TOKEN'), undefined);
+});
+
+// ---------- Activity period ----------
+
+test('Activity: "Last 7 days" leaves out older entries, "All logs" shows them', () => {
+  const b = ready();
+  const sh = b.tab('Activity');
+  sh.appendRow([new Date(Date.now() - 10 * 86400e3), 'old@example.com', 'Old', 'viewer', 'view', 'Opened Summary', 'Chrome', '']);
+  sh.appendRow([new Date(Date.now() - 3600e3), 'new@example.com', 'New', 'viewer', 'view', 'Opened Summary', 'Chrome', '']);
+  const week = b.ctx.listActivity_({ days: 7 }), all = b.ctx.listActivity_({});
+  assert.deepEqual(week.activity.map(a => a.email), ['new@example.com']);
+  assert.deepEqual(all.activity.map(a => a.email), ['new@example.com', 'old@example.com']);
+  assert.equal(all.total, 2);
+});
+
 test('D5 without Telegram set up, alerts are still recorded in the Alerts tab', () => {
   const b = ready({ telegram: false });
   b.ctx.watchData_(T); b.ctx.watchData_(T + 5 * MIN);

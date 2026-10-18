@@ -14,6 +14,7 @@ boot().then(data => {
   loadUsers();
   setupBillForm();
   setupUserForm();
+  setupTelegram();
   setupAlerts();
   setupCorrections();
   setupActivity();
@@ -113,6 +114,54 @@ async function removeUser(email) {
   } catch (err) {
     setMsg(msg, err.message, false);
   }
+}
+
+// ---------- Telegram ----------
+
+function setupTelegram() {
+  const form = document.getElementById('tgForm');
+  const msg = document.getElementById('tgMsg');
+  const token = document.getElementById('tgToken');
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    await busy(form, msg, async () => {
+      const r = await call('saveTelegram', { token: token.value.trim(), chatId: document.getElementById('tgChat').value.trim() });
+      token.value = '';
+      renderTelegram(r);
+      setMsg(msg, 'Saved. Use "Send test" to check a message arrives.', true);
+      loadActivity();
+    });
+  });
+  document.getElementById('tgTest').addEventListener('click', async () => {
+    setMsg(msg, 'Sending…', true);
+    try {
+      const { delivery } = await call('testTelegram');
+      setMsg(msg, delivery === 'sent' ? 'Test message sent – check the chat.' : `Telegram did not deliver it: ${delivery}`, delivery === 'sent');
+      loadAlerts();
+      loadActivity();
+    } catch (err) { setMsg(msg, err.message, false); }
+  });
+  document.getElementById('tgRemove').addEventListener('click', async () => {
+    if (!confirm('Stop sending alerts to Telegram? They will only be listed on this page.')) return;
+    try {
+      renderTelegram(await call('removeTelegram'));
+      setMsg(msg, 'Removed.', true);
+      loadActivity();
+    } catch (err) { setMsg(msg, err.message, false); }
+  });
+  call('getTelegram').then(renderTelegram).catch(err => setMsg(msg, err.message, false));
+}
+
+function renderTelegram(s) {
+  setMsg(document.getElementById('tgStatus'), s.configured
+    ? `Connected: alerts go to chat ${s.chatId} through ${s.botName || 'the bot'}.`
+    : 'Not set up: alerts are only listed in the Alerts section below.', s.configured);
+  document.getElementById('tgChat').value = s.chatId || '';
+  const token = document.getElementById('tgToken');
+  token.required = !s.tokenSet;
+  token.placeholder = s.tokenSet ? 'Saved – leave empty to keep it' : '123456789:ABC…';
+  document.getElementById('tgTest').disabled = !s.configured;
+  document.getElementById('tgRemove').disabled = !s.tokenSet && !s.chatId;
 }
 
 // ---------- alerts ----------
@@ -242,7 +291,17 @@ async function toggleCorrection(c) {
 
 const TYPE_LABEL = { 'sign-in': 'Signed in', 'sign-out': 'Signed out', view: 'Opened', change: 'Change', denied: 'Blocked' };
 
+// Activity period: last 7 days (default) or everything kept (the newest 5,000 entries)
+let actDays = 7;
+
 function setupActivity() {
+  const periods = [{ days: 7, label: 'Last 7 days' }, { days: 0, label: 'All logs' }];
+  const buttons = periods.map(p => el('button', { type: 'button', class: 'seg__btn', 'aria-pressed': String(p.days === actDays), onclick: () => {
+    actDays = p.days;
+    buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(periods[i].days === actDays)));
+    loadActivity();
+  } }, p.label));
+  document.getElementById('actPeriod').replaceChildren(...buttons);
   const form = document.getElementById('actFilter');
   form.addEventListener('submit', e => { e.preventDefault(); loadActivity(); });
   form.addEventListener('change', loadActivity);
@@ -253,9 +312,10 @@ async function loadActivity() {
   const msg = document.getElementById('actMsg');
   setMsg(msg, 'Loading…', true);
   try {
-    const { activity } = await call('listActivity', {
+    const { activity, total } = await call('listActivity', {
       email: document.getElementById('actEmail').value,
       type: document.getElementById('actType').value,
+      days: actDays,
     });
     document.getElementById('activity').replaceChildren(
       el('tr', {}, el('th', {}, 'When'), el('th', {}, 'Who'), el('th', {}, 'Type'), el('th', {}, 'What'), el('th', {}, 'Device')),
@@ -266,7 +326,10 @@ async function loadActivity() {
         el('td', {}, a.event, a.details ? el('div', { class: 'muted-sm' }, a.details) : ''),
         el('td', {}, a.device || ''),
       )));
-    setMsg(msg, activity.length ? `${activity.length} entries${activity.length >= 300 ? ' (latest 300)' : ''}.` : 'Nothing logged yet.', true);
+    const period = actDays ? `in the last ${actDays} days` : 'in all logs';
+    setMsg(msg, activity.length
+      ? `${total} entries ${period}${total > activity.length ? ` – showing the latest ${activity.length}` : ''}.`
+      : `Nothing ${period}.`, true);
   } catch (err) {
     setMsg(msg, err.message, false);
   }

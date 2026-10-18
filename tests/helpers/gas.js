@@ -125,7 +125,14 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
       openById: id => { if (!books[id]) throw new Error('No sheet ' + id); return books[id]; },
       create: name => { const id = 'app-' + name; books[id] = new Spreadsheet(id); return books[id]; },
     },
-    UrlFetchApp: { fetch: (url, opts) => { sent.push({ url, text: opts.payload.text, chat: opts.payload.chat_id }); return { getResponseCode: () => 200, getContentText: () => '{"ok":true}' }; } },
+    // Telegram: getMe accepts tokens ending "Valid…"; sendMessage refuses chat "999" (not found)
+    UrlFetchApp: { fetch: (url, opts = {}) => {
+      const reply = (code, body) => ({ getResponseCode: () => code, getContentText: () => JSON.stringify(body) });
+      if (url.endsWith('/getMe')) return /Valid\w*\/getMe$/.test(url) ? reply(200, { ok: true, result: { username: 'pp_test_bot' } }) : reply(401, { ok: false, description: 'Unauthorized' });
+      if (opts.payload && opts.payload.chat_id === '999') return reply(400, { ok: false, description: 'Bad Request: chat not found' });
+      sent.push({ url, text: opts.payload.text, chat: opts.payload.chat_id });
+      return reply(200, { ok: true });
+    } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ text, setMimeType() { return this; } }) },
   };
   vm.createContext(ctx);

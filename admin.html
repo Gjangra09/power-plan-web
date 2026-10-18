@@ -68,6 +68,22 @@
     </section>
 
     <section class="panel">
+      <h2>Telegram</h2>
+      <p class="muted">Where alerts are sent: use the same bot and chat as the ESP. Get a bot token from @BotFather; the chat ID is the number of your chat with the bot (or a group's, starting with -100). The token is never shown again after saving.</p>
+      <p id="tgStatus" class="msg" role="status"></p>
+      <form id="tgForm" class="form" autocomplete="off">
+        <label>Bot token <input type="password" id="tgToken" autocomplete="new-password" spellcheck="false" placeholder="123456789:ABC…"></label>
+        <label>Chat ID <input type="text" id="tgChat" inputmode="numeric" spellcheck="false" required placeholder="123456789"></label>
+        <div class="row">
+          <button class="btn" type="submit">Save</button>
+          <button class="btn btn--ghost" type="button" id="tgTest">Send test</button>
+          <button class="btn btn--ghost" type="button" id="tgRemove">Remove</button>
+        </div>
+        <p id="tgMsg" class="msg" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel">
       <h2>Alerts</h2>
       <p class="muted">A Telegram alert is sent when no new logger reading has arrived for the time below, then a reminder at the interval below until data is back, and one message when it is. Raise the numbers if the alerts are too many; lower them to hear sooner.</p>
       <p id="alertStatus" class="msg" role="status"></p>
@@ -117,6 +133,7 @@
         </label>
         <button class="btn" type="submit">Refresh</button>
       </form>
+      <div class="seg" id="actPeriod" role="group" aria-label="Period" style="margin: 0.75rem 0"></div>
       <div class="table-wrap"><table id="activity"></table></div>
       <p id="actMsg" class="msg" role="status"></p>
     </section>

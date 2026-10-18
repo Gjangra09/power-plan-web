@@ -38,6 +38,7 @@ const activity = [
   { ts: now - 3 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Added data correction C0', device: 'Edge on Windows', details: 'readings 14 Oct 2026 02:00 – 14 Oct 2026 03:00 ignored · reason: logger glitch after power cut · current cycle 182.4 units → 182.4 units' },
   { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows', details: 'start energy 1500 kWh' },
 ];
+const telegramDemo = { configured: true, tokenSet: true, chatId: '123456789', botName: '@demo_power_bot' };
 const alertDemo = {
   alertMinutes: 2, remindMinutes: 30, watchMinutes: 1, telegram: true, downSince: null,
   week: { alerts: 51, reminders: 83, back: 51 },
@@ -73,7 +74,19 @@ export async function mockCall(action, params) {
   switch (action) {
     case 'login': return { ok: true, me, session: 'demo', sessionExp: now + 30 * DAY };
     case 'logout': return { ok: true };
-    case 'listActivity': return { ok: true, activity: activity.filter(a => (!params.email || a.email === params.email) && (!params.type || a.type === params.type)) };
+    case 'listActivity': {
+      const since = params.days ? Date.now() - params.days * 86400e3 : 0;
+      const rows = activity.filter(a => a.ts >= since && (!params.email || a.email === params.email) && (!params.type || a.type === params.type));
+      return { ok: true, activity: rows, total: rows.length };
+    }
+    case 'getTelegram': return { ok: true, ...telegramDemo };
+    case 'saveTelegram':
+      if (!/^-?\d+$/.test(params.chatId)) throw Object.assign(new Error('Chat ID is a number (e.g. 123456789, or -100… for a group) or @channelname.'), { code: 400 });
+      Object.assign(telegramDemo, { chatId: params.chatId, tokenSet: telegramDemo.tokenSet || !!params.token, botName: '@demo_power_bot' });
+      telegramDemo.configured = telegramDemo.tokenSet;
+      return { ok: true, ...telegramDemo };
+    case 'removeTelegram': Object.assign(telegramDemo, { configured: false, tokenSet: false, chatId: '', botName: '' }); return { ok: true, ...telegramDemo };
+    case 'testTelegram': return { ok: true, delivery: 'sent' };
     case 'me': return { ok: true, me };
     case 'summary': return summary(me);
     case 'saveBilling': {
