@@ -7,3 +7,4 @@ Thumbs.db
 .clasp*.json
 deploy-targets.json
 .clasprc.json
+apps-script/Build.gs

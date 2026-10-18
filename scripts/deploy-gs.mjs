@@ -39,6 +39,11 @@ const commit = run('git', ['rev-parse', '--short', 'HEAD'], { capture: true }).t
 const dirty = run('git', ['status', '--porcelain', 'apps-script'], { capture: true }).trim() ? ' + local changes' : '';
 const description = `${env} ${commit}${dirty} ${new Date().toISOString().slice(0, 16)}`;
 
+// A build stamp for the Health page (apps-script/Build.gs, not committed)
+fs.writeFileSync(root + 'apps-script/Build.gs', `// Written by scripts/deploy-gs.mjs – not committed.
+var BUILD = ${JSON.stringify({ env, commit, dirty: !!dirty, deployedAt: new Date().toISOString() })};
+`);
+
 // 2. Replace the project's files with apps-script/ (the manifest too)
 console.log(`2/4 Pushing apps-script/ to the ${env.toUpperCase()} project…`);
 clasp(['push', '--force']);

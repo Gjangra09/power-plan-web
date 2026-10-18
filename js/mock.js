@@ -137,6 +137,22 @@ export async function mockCall(action, params) {
         compare: compareWithApp(f, { units: s.calc.unitsSoFar, bill: s.calc.chargesSoFar }), uploadedBy: 'you@example.com', uploadedAt: now - 2 * DAY }],
         calibration: { current: 1.02, suggestion: meterCalibration([{ dhbvnUnits: f.units, loggerUnits: s.calc.unitsSoFar / 1.02 }]), cycles: [{ periodFrom: f.periodFrom, periodTo: f.periodTo, dhbvnUnits: f.units, loggerUnits: s.calc.unitsSoFar / 1.02, coverage: 0.94 }] } };
     }
+    case 'health': return { ok: true, status: 'warn', env: 'prod', serverTime: Date.now(), build: { env: 'prod', commit: 'demo123', dirty: false, deployedAt: new Date(now - 3 * DAY).toISOString() },
+      checks: [
+        { key: 'data', label: 'Logger data', status: 'ok', value: 'last reading 1 min ago', detail: '' },
+        { key: 'sync', label: 'Last successful sync', status: 'ok', value: '6 min ago', detail: 'updates every 15 min · 2000 rows read, 3 hours written' },
+        { key: 'jobs', label: 'Background jobs (24 h)', status: 'warn', value: '1 failed', detail: 'last: updateHourly – Service Spreadsheets timed out (demo)' },
+        { key: 'errors', label: 'Server errors (24 h)', status: 'ok', value: '0', detail: '' },
+        { key: 'triggers', label: 'Timers', status: 'ok', value: 'all running', detail: 'updateHourly, healthCheck, watchData' },
+        { key: 'sheet', label: 'App sheet size', status: 'ok', value: '0.9% of Google\'s limit', detail: '91,350 cells · Hourly 7,283 rows · Activity 412 rows' },
+      ],
+      jobs: [
+        { ts: now - 6 * 60e3, job: 'updateHourly', status: 'ok', ms: 7300, rows: 2000, message: '3 hours written' },
+        { ts: now - 21 * 60e3, job: 'updateHourly', status: 'ok', ms: 6900, rows: 2000, message: '2 hours written' },
+        { ts: now - 40 * 60e3, job: 'healthCheck', status: 'ok', ms: 2100, rows: 0, message: 'data age 0.02 h, lag 0.00 h' },
+        { ts: now - 9 * 3600e3, job: 'updateHourly', status: 'error', ms: 30100, rows: '', message: 'Service Spreadsheets timed out (demo)' },
+      ],
+      alerts: [], errors: [] };
     case 'getBillFile': throw Object.assign(new Error('Demo mode has no real bill PDF.'), { code: 404 });
     case 'uploadBill': return { ok: true, id: 'D1', cycleStart: null, details: 'demo' };
     case 'deleteBillDoc': return { ok: true, id: params.id };

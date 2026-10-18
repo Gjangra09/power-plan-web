@@ -345,6 +345,7 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
 .facts dt { color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .facts dd { margin: 0.1rem 0 0; font-weight: 600; }
 .bill-table { width: 100%; }
+.bill-table td:not(.num), .bill-table th:not(.num) { white-space: normal; }
 .bill-table td.num, .bill-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bill-table tfoot td { font-weight: 700; border-top: 1px solid var(--border); padding-top: 0.6rem; }
 .bill-table__total td { font-weight: 700; }
@@ -352,8 +353,34 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
 
 @media (max-width: 640px) {
   .cyclebar__label { display: none; }
-  .grid2 { grid-template-columns: 1fr; }
+  /* minmax(0, …): a wide table scrolls inside its panel instead of widening the page */
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+  /* Header: brand + profile on the first row, the menu scrolls sideways on its own row */
+  .top { flex-wrap: wrap; gap: 0.4rem 0.75rem; }
+  .top nav { order: 3; flex: 1 0 100%; overflow-x: auto; scrollbar-width: none; }
+  .top nav::-webkit-scrollbar { display: none; }
+  .top nav a { white-space: nowrap; }
+  .who { margin-left: auto; }
+  .cyclebar { padding: 0 16px; }
+  .page-head { flex-wrap: wrap; }
+  .facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* Service health page */
+.health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.hcheck { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; }
+.hcheck__head { display: flex; align-items: center; gap: 0.5rem; }
+.hcheck__head h3 { margin: 0; font-size: 0.85rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.hcheck__value { font-size: 1.1rem; font-weight: 600; margin: 0.35rem 0 0.2rem; }
+.hcheck--ok .hcheck__dot { color: var(--green); }
+.hcheck--warn .hcheck__dot { color: var(--amber); }
+.hcheck--bad .hcheck__dot { color: var(--red); }
+.hcheck--bad { border-color: rgba(255, 92, 122, 0.45); }
+.hcheck--warn { border-color: rgba(255, 181, 71, 0.35); }
+.health-title--ok::before, .health-title--warn::before, .health-title--bad::before { content: '● '; }
+.health-title--ok::before { color: var(--green); }
+.health-title--warn::before { color: var(--amber); }
+.health-title--bad::before { color: var(--red); }
 
 /* Admin → Who can view */
 .ticks { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; align-items: center; }

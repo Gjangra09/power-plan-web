@@ -31,6 +31,7 @@ const ACTIONS = {
   listUsers:     { role: 'admin',  fn: () => ({ users: usersWithLastSeen_() }) },
   saveUser:      { role: 'admin',  fn: 'saveUser_' },
   setPages:      { role: 'admin',  fn: 'setPages_' },
+  health:        { role: 'viewer', page: 'health', fn: 'health_' },
   decideRequest: { role: 'admin',  fn: 'decideRequest_' },
   removeUser:    { role: 'admin',  fn: 'removeUser_' },
   listActivity:  { role: 'admin',  fn: 'listActivity_' },

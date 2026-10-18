@@ -124,6 +124,7 @@ const can = (me, page) => me.role === 'admin' || (me.pages || []).includes(page)
 const NAV = [
   { key: 'summary', href: './', label: 'Summary', allowed: () => true },
   { key: 'bills', href: 'bills.html', label: 'Bills', allowed: me => can(me, 'breakdown') || can(me, 'documents') },
+  { key: 'health', href: 'health.html', label: 'Health', allowed: me => can(me, 'health') },
   { key: 'admin', href: 'admin.html', label: 'Admin', allowed: me => me.role === 'admin' },
 ];
 

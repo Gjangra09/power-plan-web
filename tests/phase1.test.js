@@ -314,3 +314,40 @@ test('G4 the user list shows invited (never signed in) vs active people', () => 
   assert.equal(users.find(u => u.email === 'viewer@example.com').status, 'active');
   assert.equal(users.find(u => u.email === 'past@example.com').status, 'invited');
 });
+
+// ---------- 1E: Service health page (G6) ----------
+
+test('G6 health needs "Service health"; all ok when data is fresh, the update ran and the timers exist', () => {
+  const b = ready();
+  b.ctx.installTriggers_();
+  b.ctx.updateHourly();
+  assert.deepEqual([post(b, 'viewer@example.com', { action: 'health' }).code, post(b, 'viewer@example.com', { action: 'health' }).need], [403, 'health']);
+  const h = post(b, 'admin@example.com', { action: 'health' });
+  const by = k => h.checks.find(c => c.key === k);
+  assert.equal(by('sync').status, 'ok');
+  assert.equal(by('triggers').status, 'ok');
+  assert.equal(by('jobs').status, 'ok');
+  assert.equal(by('errors').status, 'ok');
+  assert.equal(by('sheet').status, 'ok');
+  assert.match(by('data').value, /last reading/);
+});
+
+test('G6 health shows problems: stale data, failing update with retries, missing timer, server errors', () => {
+  const b = ready();
+  b.ctx.installTriggers_();
+  b.source.rows.length = b.source.rows.length - 3 * 60;           // last reading 3.5 h ago
+  b.ctx.sourceSheet_ = (orig => { let n = 0; return () => { if (n++ < 1) throw new Error('Service Spreadsheets timed out'); return orig(); }; })(b.ctx.sourceSheet_);
+  b.ctx.updateHourly();                                           // fails → retry pending
+  b.ctx.logError_('api', new Error('boom'), '', 'summary');
+  b.ctx.deleteTriggers_('watchData');
+  const h = b.ctx.health_();
+  const by = k => h.checks.find(c => c.key === k);
+  assert.equal(by('data').status, 'bad');
+  assert.equal(by('jobs').status, 'warn');
+  assert.match(by('jobs').detail, /retrying/);
+  assert.equal(by('errors').status, 'warn');
+  assert.equal(by('triggers').status, 'bad');
+  assert.match(by('triggers').detail, /watchData/);
+  assert.equal(h.status, 'bad');
+  assert.equal(h.build, null, 'no build stamp in tests');
+});
