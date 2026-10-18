@@ -163,7 +163,7 @@ function saveBilling_(req, user) {
   if (startEnergy === '') throw httpError_(400, 'No logger readings around that time, so the starting meter energy cannot be found.');
   const note = String(req.note || '').slice(0, 200);
   withLock_(() => {
-    tab_('Bills').appendRow([ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date()]);
+    addRow_(tab_('Bills'), [ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date()]);
   });
   return { saved: { ts, startEnergy, expectedNextTs: expectedNext || null } };
 }
@@ -187,7 +187,7 @@ function saveUser_(req, user) {
   const i = rows.findIndex((r, k) => k > 0 && String(r[0]).toLowerCase() === email);
   const before = i > 0 ? String(rows[i][1]) : 'no access';
   if (i > 0) sh.getRange(i + 1, 2).setValue(role);
-  else sh.appendRow([email, role, '']);
+  else addRow_(sh, [email, role, '']);
   return { users: usersWithLastSeen_(), details: `${before} → ${role}` };
 }
 
@@ -228,7 +228,7 @@ function saveCorrection_(req, user) {
 
   const before = currentUnits_();
   const id = 'C' + Utilities.getUuid().slice(0, 8);
-  withLock_(() => tab_('Corrections').appendRow([id, kind, from, to === null ? '' : to, kind === 'adjust' ? value : '', reason, true, user.email, new Date(), '', '']));
+  withLock_(() => addRow_(tab_('Corrections'), [id, kind, from, to === null ? '' : to, kind === 'adjust' ? value : '', reason, true, user.email, new Date(), '', '']));
   const after = currentUnits_();
   const what = kind === 'adjust'
     ? `${value > 0 ? '+' : ''}${value} kWh from ${fmt_(from)}${to ? ' to ' + fmt_(to) : ''}`
@@ -363,7 +363,7 @@ function roleOf_(email) {
 function logActivity_(user, req, entry) {
   try {
     const sh = activitySheet_();
-    sh.appendRow([new Date(), user.email, user.name || '', user.role || '', entry[0], entry[1], String(req.client || '').slice(0, 60), String(entry[2] || '').slice(0, 500)]);
+    addRow_(sh, [new Date(), user.email, user.name || '', user.role || '', entry[0], entry[1], String(req.client || '').slice(0, 60), String(entry[2] || '').slice(0, 500)]);
     if (sh.getLastRow() > APP.ACTIVITY_MAX_ROWS + 500) sh.deleteRows(2, 500);
   } catch (err) {
     console.error('Activity log failed: ' + err);

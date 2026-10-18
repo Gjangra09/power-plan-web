@@ -178,7 +178,7 @@ function notify_(key, state, text) {
       });
       delivery = res.getResponseCode() === 200 ? 'sent' : 'failed (HTTP ' + res.getResponseCode() + ')';
     }
-    tab_('Alerts').appendRow([new Date(), key, state, full, delivery]);
+    addRow_(tab_('Alerts'), [new Date(), key, state, full, delivery]);
   } catch (err) {
     console.error('Alert failed: ' + (err && err.message));
   }
@@ -194,7 +194,7 @@ function sendTestAlert() {
 
 function logJob_(started, name, status, rows, message) {
   try {
-    tab_('Jobs').appendRow([new Date(started), name, status, Date.now() - started, rows === undefined ? '' : rows, String(message || '').slice(0, 300)]);
+    addRow_(tab_('Jobs'), [new Date(started), name, status, Date.now() - started, rows === undefined ? '' : rows, String(message || '').slice(0, 300)]);
   } catch (err) {
     console.error('Job log failed: ' + (err && err.message));
   }
@@ -203,7 +203,7 @@ function logJob_(started, name, status, rows, message) {
 /** Never lets a logging problem break the request or job. */
 function logError_(where, err, email, action) {
   try {
-    tab_('Errors').appendRow([new Date(), where, (err && err.code) || 500, String(err && err.message || err).slice(0, 500), email || '', action || '']);
+    addRow_(tab_('Errors'), [new Date(), where, (err && err.code) || 500, String(err && err.message || err).slice(0, 500), email || '', action || '']);
   } catch (e) {
     console.error('Error log failed: ' + (e && e.message));
   }
@@ -233,6 +233,8 @@ function phase0Check() {
   Logger.log(`Environment: ${APP.ENV}`);
   Object.keys(TABS).forEach(tab_);
   seedDefaults_();
+  const fixed = repairTextCells_();
+  if (fixed) Logger.log(`Repaired ${fixed} cells that Sheets had turned into formulas (#ERROR!).`);
   Logger.log('Tabs: ' + Object.keys(TABS).join(', ') + ' – all present with their columns.');
   installTriggers_();
   Logger.log('Triggers: ' + ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction()).join(', '));

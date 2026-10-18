@@ -211,6 +211,26 @@ test('D3 a correction changes the server bill by exactly its amount, is logged b
   assert.equal(b.tab('Hourly').rows.length > 1, true, 'raw data untouched');
 });
 
+test('D3 the activity log keeps "−2 kWh …" and typed "=…" text as text (Sheets would make them formulas)', () => {
+  const b = ready();
+  const user = { email: 'admin@example.com', name: 'Admin', role: 'admin' };
+  const r = b.ctx.saveCorrection_({ kind: 'adjust', from: END - 10 * H, value: -2, reason: '=IMPORTDATA("x")' }, user);
+  b.ctx.logActivity_(user, {}, ['change', 'Added data correction ' + r.saved.id, r.details]);
+  const last = b.ctx.recentActivity_(1)[0];
+  assert.match(last.details, /^-2 kWh from /);
+  assert.equal(b.ctx.corrections_()[0].reason, '=IMPORTDATA("x")');
+  assert.ok(b.tab('Activity').rows.slice(1).every(row => row.every(v => String(v) !== '#ERROR!')));
+});
+
+test('D3 cells already turned into #ERROR! by Sheets are repaired back to their text', () => {
+  const b = ready();
+  b.tab('Activity').appendRow([new Date(), 'a@example.com', 'A', 'admin', 'change', 'Added data correction C1', 'Chrome on Windows', '-2 kWh from 18 Oct 2026 10:00 · reason: test']);
+  assert.equal(b.ctx.recentActivity_(1)[0].details, '#ERROR!');
+  assert.equal(b.ctx.repairTextCells_(), 1);
+  assert.equal(b.ctx.recentActivity_(1)[0].details, '-2 kWh from 18 Oct 2026 10:00 · reason: test');
+  assert.equal(b.ctx.repairTextCells_(), 0, 'nothing left to repair');
+});
+
 test('D3 corrections are checked: no reason, no end for "exclude", zero change → refused', () => {
   const b = ready();
   const user = { email: 'admin@example.com' };

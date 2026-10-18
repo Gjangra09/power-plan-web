@@ -27,7 +27,7 @@ function setup() {
 
   const users = tab_('Users');
   const me = Session.getEffectiveUser().getEmail().toLowerCase();
-  if (users.getLastRow() < 2) users.appendRow([me, 'admin', '']);
+  if (users.getLastRow() < 2) addRow_(users, [me, 'admin', '']);
   seedDefaults_();
 
   // Safe to run again: an existing history is kept (backfillHourly() rebuilds it on purpose)
@@ -79,10 +79,10 @@ function seedDefaults_() {
     // An older Config row "tariff" (JSON) wins over the built-in tariff
     const old = readTab_('Config').find(r => r.Key === 'tariff');
     const rates = Billing.normalizeTariff(old ? JSON.parse(String(old.Value)) : Billing.DEFAULT_TARIFF);
-    tv.appendRow(['v1', rates.category, 0, 'from the start', JSON.stringify(rates), 'DHBVN tariff on the 2025–26 bills', 'setup', new Date()]);
+    addRow_(tv, ['v1', rates.category, 0, 'from the start', JSON.stringify(rates), 'DHBVN tariff on the 2025–26 bills', 'setup', new Date()]);
   }
   const dev = tab_('Devices');
-  if (dev.getLastRow() < 2) dev.appendRow(['pzem-grid', 'PZEM logger (ESP)', 'Grid supply: V, A, W, kWh', 'Home', '2025-10-07', 'Logger sheet PZEM_Data']);
+  if (dev.getLastRow() < 2) addRow_(dev, ['pzem-grid', 'PZEM logger (ESP)', 'Grid supply: V, A, W, kWh', 'Home', '2025-10-07', 'Logger sheet PZEM_Data']);
 }
 
 /** Rebuilds the Hourly tab from every row currently in the logger sheet (runs in steps, like setup). */
@@ -314,6 +314,43 @@ function tab_(name) {
   }
   tabCache_[name] = sh;
   return sh;
+}
+
+/**
+ * Appends a row with every text kept as text. Sheets reads text starting with = + - @ as a
+ * formula ("-2 kWh from …" became #ERROR!, and typed text could run a formula), so such text
+ * gets a leading apostrophe, which Sheets hides and drops when the value is read.
+ */
+function addRow_(sh, values) {
+  sh.appendRow(values.map(cellText_));
+}
+
+function cellText_(v) {
+  return typeof v === 'string' && /^[=+\-@]/.test(v) ? "'" + v : v;
+}
+
+/**
+ * Turns cells that Sheets made into formulas back into the text that was meant (from before
+ * addRow_ existed). Only formulas that start with + or - and aren't valid are touched. Returns
+ * how many cells were fixed.
+ */
+function repairTextCells_() {
+  let fixed = 0;
+  [['Activity', 'Details'], ['Activity', 'Event'], ['Corrections', 'Reason'], ['Bills', 'Note'], ['Errors', 'Message']].forEach(([name, col]) => {
+    const sh = tab_(name);
+    const n = sh.getLastRow() - 1;
+    const c = TABS[name].indexOf(col) + 1;
+    if (n < 1 || c < 1) return;
+    const range = sh.getRange(2, c, n, 1);
+    const values = range.getValues(), formulas = range.getFormulas();
+    formulas.forEach((f, i) => {
+      if (/^=[+\-]/.test(f[0]) && /^#(ERROR|NAME|VALUE)/.test(String(values[i][0]))) {
+        sh.getRange(i + 2, c).setValue("'" + f[0].slice(1));
+        fixed++;
+      }
+    });
+  });
+  return fixed;
 }
 
 /** Forgets the tabs checked in this run (after a tab is deleted or replaced). */

@@ -8,6 +8,11 @@ const pad = n => String(n).padStart(2, '0');
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const HOUR_TEXT = /^(\d{4})-(\d\d)-(\d\d) (\d\d):00$/;
 
+class Formula {
+  constructor(text) { this.text = text; }
+  toString() { return '#ERROR!'; }
+}
+
 class Sheet {
   constructor(name, rows = []) { this.name = name; this.rows = rows; this.textA = false; this.failNextSetValues = 0; }
   getName() { return this.name; }
@@ -18,8 +23,11 @@ class Sheet {
   deleteRows(i, n) { this.rows.splice(i - 1, n); }
   setFrozenRows() {}
   getDataRange() { return this.getRange(1, 1, this.rows.length, this.getLastColumn()); }
-  // Sheets turns hour text into a date unless column A is formatted as text
+  // Sheets turns hour text into a date unless column A is formatted as text, and text starting
+  // with = + - @ into a formula (#ERROR! when it isn't one); a leading apostrophe keeps text as text
   store(v, col) {
+    if (typeof v === 'string' && v.startsWith("'")) return v.slice(1);
+    if (typeof v === 'string' && /^[=+\-@]/.test(v)) return new Formula(v.startsWith('=') ? v : '=' + v);
     const m = col === 0 && !this.textA && typeof v === 'string' && HOUR_TEXT.exec(v);
     return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4]) : v;
   }
@@ -31,14 +39,16 @@ class Sheet {
       for (let i = 0; i < n; i++) {
         const row = sheet.rows[a - 1 + i] || [];
         const vals = [];
-        for (let j = 0; j < w; j++) { const v = row[c - 1 + j]; vals.push(v === undefined || v === null ? '' : v); }
+        for (let j = 0; j < w; j++) { const v = row[c - 1 + j]; vals.push(v === undefined || v === null ? '' : v instanceof Formula ? '#ERROR!' : v); }
         out.push(vals);
       }
       return out;
     };
     return {
       getValues: read,
+      getFormulas: () => read().map((r, i) => r.map((v, j) => { const x = (sheet.rows[a - 1 + i] || [])[c - 1 + j]; return x instanceof Formula ? x.text : ''; })),
       getDisplayValues: () => read().map(r => r.map(String)),
+      rawFormula: () => sheet.rows[a - 1] && sheet.rows[a - 1][c - 1],
       getValue: () => read()[0][0],
       getDisplayValue: () => String(read()[0][0]),
       setValue: v => { const row = sheet.rows[a - 1] || (sheet.rows[a - 1] = []); row[c - 1] = sheet.store(v, c - 1); },
