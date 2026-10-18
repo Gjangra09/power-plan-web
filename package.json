@@ -4,6 +4,12 @@
   "type": "module",
   "description": "Bill-cycle summary for the PZEM energy logger (GitHub Pages frontend + Apps Script backend)",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "build:gs": "node scripts/build-gs.mjs",
+    "deploy:uat": "node scripts/deploy-gs.mjs uat",
+    "deploy:prod": "node scripts/deploy-gs.mjs prod"
+  },
+  "devDependencies": {
+    "@google/clasp": "3.4.1"
   }
 }

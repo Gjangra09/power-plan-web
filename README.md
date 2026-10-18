@@ -71,6 +71,18 @@ Set PZEM_Data and Pzem_Elec_DayData to **Share → General access → Restricted
 - **Release:** change and test on `uat` → merge `uat` into `main` → tag `vX.Y.Z`. If `.gs` files changed, paste them into the prod project, then **Deploy → Manage deployments → ✏️ → New version**. (Timers run the latest saved code, so prod's `.gs` files change only at release.)
 - **Rollback:** website – revert the merge on `main` (or reset to the last tag) and push. Backend – paste the previous `.gs` files back and pick the previous version in Manage deployments.
 
+## Deploy without copy-paste (clasp)
+`npm run deploy:uat` runs the tests, pushes `apps-script/` to the UAT project, creates a version and moves the existing web-app deployment to it (same `/exec` URL). `npm run deploy:prod -- --promote` does the same for prod and refuses without `--promote`.
+
+One-time setup:
+1. Switch on **Google Apps Script API** at https://script.google.com/home/usersettings.
+2. `npm install`, then `npx clasp login` (browser sign-in; the token is stored in your user folder, not in this repo).
+3. Create the local files (git-ignored, never committed):
+   - `.clasp.uat.json` / `.clasp.prod.json`: `{"scriptId": "<Project Settings → Script ID>", "rootDir": "apps-script"}`
+   - `deploy-targets.json`: `{"uat": {"deploymentId": "AKfy…"}, "prod": {"deploymentId": "AKfy…"}}` (the id inside each `/exec` URL)
+
+`phase0Check` (and any other editor function) is still run from the Apps Script editor.
+
 ## Archive (optional, nightly)
 `ArchiveAndClean.gs` moves logger rows older than 60 days to monthly CSVs in Drive and deletes zero-load rows. Run `archiveDryRun` first and check the log. Then run `installArchiveTrigger`, but only once Power BI also reads the archive CSVs. The dashboard is not affected, because its history lives in the Hourly tab.
 
