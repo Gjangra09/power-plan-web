@@ -10,7 +10,7 @@
 // The full backfill reads the whole logger sheet, which takes longer than one Apps Script run
 // (6 min). It is done in steps: each stops after BACKFILL_BUDGET_MS, saves where it got to, and
 // schedules the next step a minute later.
-const BACKFILL_CHUNK = 20000;
+const BACKFILL_CHUNK = 10000;   // ~30 s per read, so a step never runs far past the budget
 const BACKFILL_BUDGET_MS = 4 * 60 * 1000;
 
 /** One-time setup: creates the app spreadsheet, seeds users, then backfills history (in steps) and finishes. */
@@ -28,7 +28,11 @@ function setup() {
   const me = Session.getEffectiveUser().getEmail().toLowerCase();
   if (users.getLastRow() < 2) users.appendRow([me, 'admin']);
 
-  if (!PropertiesService.getScriptProperties().getProperty('BACKFILL_NEXT_ROW')) startBackfill_();
+  // Safe to run again: an existing history is kept (backfillHourly() rebuilds it on purpose)
+  if (!PropertiesService.getScriptProperties().getProperty('BACKFILL_NEXT_ROW')) {
+    if (loadState_()) Logger.log('History already built – keeping it. Run backfillHourly() to rebuild it.');
+    else startBackfill_();
+  }
   continueSetup();
 }
 
