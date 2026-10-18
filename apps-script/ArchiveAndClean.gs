@@ -21,10 +21,13 @@ const ARCHIVE = {
   ARCHIVE_ROOT: 'Power Plan Archive',
   TAB_NAME: 'Sheet1',
   TIME_BUDGET_MS: 5 * 60 * 1000, // Apps Script hard limit is 6 min
-  sheets: [
-    { name: 'PZEM_Data', id: APP.SOURCE_ID },
-    { name: 'Invertor',  id: APP.INVERTER_ID },
-  ],
+  // A getter, so APP is read when the archive runs: Apps Script may load this file before Config.gs
+  get sheets() {
+    return [
+      { name: 'PZEM_Data', id: APP.SOURCE_ID },
+      { name: 'Invertor',  id: APP.INVERTER_ID },
+    ];
+  },
 };
 
 function archiveRun()    { archiveMain_(false); }
