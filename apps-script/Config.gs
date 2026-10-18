@@ -1,20 +1,31 @@
 /**
- * Settings for the Power Plan backend. Edit GOOGLE_CLIENT_ID before running setup().
+ * Settings for the Power Plan backend.
+ *
+ * The same .gs files run in both Apps Script projects (prod and UAT). What differs is kept in
+ * Project Settings → Script Properties, so no IDs are ever in this public repo:
+ *   ENV               prod | uat
+ *   GOOGLE_CLIENT_ID  OAuth 2.0 Web client ID (same for both)
+ *   SOURCE_ID         grid meter sheet ID (PZEM_Data) – the long part of the sheet URL
+ *   INVERTER_ID       inverter sheet ID (Pzem_Elec_DayData)
+ * Run checkConfig() after setting them.
  */
-const APP = {
-  // OAuth 2.0 Web client ID from Google Cloud Console (APIs & Services → Credentials)
-  GOOGLE_CLIENT_ID: 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com',
+const REQUIRED_PROPS = ['ENV', 'GOOGLE_CLIENT_ID', 'SOURCE_ID', 'INVERTER_ID'];
 
-  // Logger sheet IDs (the long part of the sheet URL). Fill these in Apps Script only –
-  // never commit real IDs: this repo is public.
-  SOURCE_ID: 'PASTE_PZEM_DATA_SHEET_ID',        // grid meter (PZEM_Data)
-  INVERTER_ID: 'PASTE_INVERTER_SHEET_ID',       // inverter output (Pzem_Elec_DayData)
+// Getters, so Script Properties are read when a function runs (not while files load)
+const APP = {
+  get ENV() { return requiredProp_('ENV'); },
+  get GOOGLE_CLIENT_ID() { return requiredProp_('GOOGLE_CLIENT_ID'); },
+  get SOURCE_ID() { return requiredProp_('SOURCE_ID'); },
+  get INVERTER_ID() { return requiredProp_('INVERTER_ID'); },
   SOURCE_TAB: 'Sheet1',
 
   // App data spreadsheet, created by setup() in your Drive
-  APP_SHEET_NAME: 'PowerPlan_App',
+  get APP_SHEET_NAME() { return this.ENV === 'prod' ? 'PowerPlan_App' : 'PowerPlan_App_UAT'; },
 
-  // Rows read from the end of the logger sheet on each 15-minute update (~1.5 days at 1/min)
+  // UAT updates less often: both projects share the account's daily trigger time
+  get UPDATE_MINUTES() { return this.ENV === 'prod' ? 15 : 30; },
+
+  // Rows read from the end of the logger sheet on each update (~1.5 days at 1/min)
   TAIL_ROWS: 2000,
 
   // Hours of history before the cycle start sent to the dashboard
@@ -30,3 +41,21 @@ const TABS = {
   Config: ['Key', 'Value'],
   Users: ['Email', 'Role'],
 };
+
+/** Run from the editor: shows which environment this project is and whether every setting is filled. */
+function checkConfig() {
+  const props = PropertiesService.getScriptProperties();
+  REQUIRED_PROPS.forEach(k => {
+    const v = props.getProperty(k);
+    Logger.log(`${k}: ${v ? (k === 'ENV' ? v : v.slice(0, 6) + '…') : 'MISSING'}`);
+  });
+  Logger.log(`APP_SHEET_ID: ${props.getProperty('APP_SHEET_ID') || '(created by setup)'}`);
+  requiredProp_('ENV');
+}
+
+function requiredProp_(key) {
+  const v = PropertiesService.getScriptProperties().getProperty(key);
+  if (!v) throw new Error(`Script Property ${key} is not set (Project Settings → Script Properties).`);
+  if (key === 'ENV' && v !== 'prod' && v !== 'uat') throw new Error(`ENV must be prod or uat, not "${v}".`);
+  return v;
+}

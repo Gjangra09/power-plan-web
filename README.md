@@ -36,22 +36,37 @@ Tests: `npm test`. The tariff engine reproduces all six real DHBVN bills.
 1. Go to https://script.google.com and create a **New project** called "Power Plan".
 2. Create one script file for each `.gs` file in `apps-script/` (Config, Summary, Api, ArchiveAndClean) and paste in its contents.
 3. **Project Settings → Show "appsscript.json"**, then paste in `apps-script/appsscript.json`.
-4. In `Config.gs`, set `GOOGLE_CLIENT_ID` (from step 1), `SOURCE_ID` and `INVERTER_ID` (the long ID in each logger sheet's URL). Do this only in Apps Script – never commit real IDs to the public repo.
-5. Select `setup` and click **Run**, then approve the permissions. This:
-   - creates the `PowerPlan_App` spreadsheet (you are its admin)
+4. **Project Settings → Script Properties**, add: `ENV` = `prod` (or `uat`), `GOOGLE_CLIENT_ID` (from step 1), `SOURCE_ID` and `INVERTER_ID` (the long ID in each logger sheet's URL). The code holds no IDs, so the same files work in every project and nothing secret reaches the public repo. Run `checkConfig` to confirm.
+5. Select `setup` and click **Run**, then approve the permissions with every box ticked. This:
+   - creates the `PowerPlan_App` spreadsheet (`PowerPlan_App_UAT` in UAT); you are its admin
    - builds hourly history from the whole logger sheet
    - adds your 7 past DHBVN bill dates
-   - starts the 15-minute update
+   - starts the update timer (every 15 min in prod, 30 min in UAT)
 6. **Deploy → New deployment → Web app**: Execute as **Me**, Who has access **Anyone**. Copy the URL ending in `/exec`.
    ("Anyone" only lets the request reach the script. The script still rejects anyone who isn't signed in and listed in Users.)
 
 ### 3. Frontend
-1. In `js/config.js`, set `clientId` and `apiUrl`.
-2. Push this repo to GitHub. Then go to **Settings → Pages → Deploy from branch → main / root**.
+1. In `js/config.js`, set `clientId` and the `/exec` URL under `BACKENDS.prod` (and `BACKENDS.uat`).
+2. Push this repo to GitHub. Then go to **Settings → Pages → Source: GitHub Actions** (`.github/workflows/pages.yml` publishes it).
 3. Open `https://<your-github-username>.github.io/power-plan-web/`, sign in, then go to **Admin** and set the last billing date and time.
 
 ### 4. Lock down the sheets (after Power BI uses Google sign-in)
 Set PZEM_Data and Pzem_Elec_DayData to **Share → General access → Restricted**. The app keeps working, because the script runs as you.
+
+## Prod and UAT
+
+| | Prod | UAT |
+|---|---|---|
+| Address | `…/power-plan-web/` | `…/power-plan-web/uat/` (orange UAT badge) |
+| Branch | `main` | `uat` |
+| Apps Script project | "Power Plan" (`ENV=prod`) | "Power Plan UAT" (`ENV=uat`) |
+| App sheet | `PowerPlan_App` | `PowerPlan_App_UAT` |
+
+- Every push to `main` or `uat` runs the tests and republishes both (about 1 min). A failing test publishes nothing.
+- `js/config.js` is the same on both branches; the page address picks the backend.
+- UAT reads the real logger sheets but never writes to them: the archive refuses to run unless `ENV=prod`.
+- **Release:** change and test on `uat` → merge `uat` into `main` → tag `vX.Y.Z`. If `.gs` files changed, paste them into the prod project, then **Deploy → Manage deployments → ✏️ → New version**. (Timers run the latest saved code, so prod's `.gs` files change only at release.)
+- **Rollback:** website – revert the merge on `main` (or reset to the last tag) and push. Backend – paste the previous `.gs` files back and pick the previous version in Manage deployments.
 
 ## Archive (optional, nightly)
 `ArchiveAndClean.gs` moves logger rows older than 60 days to monthly CSVs in Drive and deletes zero-load rows. Run `archiveDryRun` first and check the log. Then run `installArchiveTrigger`, but only once Power BI also reads the archive CSVs. The dashboard is not affected, because its history lives in the Hourly tab.

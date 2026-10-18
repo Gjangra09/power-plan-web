@@ -1,7 +1,7 @@
 /**
  * Hourly energy snapshots for the dashboard.
  *
- * Every 15 minutes the tail of the logger sheet is cleaned with the same rules as Power BI
+ * Every 15 minutes (30 in UAT) the tail of the logger sheet is cleaned with the same rules as Power BI
  * (Sheet1.tmdl): zero-load rows dropped, glitches hold the last good value, counter resets
  * carry the old total forward. The cleaned, never-decreasing energy at the last reading of
  * each hour is kept in the Hourly tab, which survives the archive script deleting old rows.
@@ -9,9 +9,7 @@
 
 /** One-time setup: creates the app spreadsheet, seeds users and bills, backfills, installs triggers. */
 function setup() {
-  ['GOOGLE_CLIENT_ID', 'SOURCE_ID', 'INVERTER_ID'].forEach(k => {
-    if (String(APP[k]).indexOf('PASTE_') === 0) throw new Error(`Set APP.${k} in Config.gs first.`);
-  });
+  REQUIRED_PROPS.forEach(requiredProp_);
   const ss = appSheet_(true);
   Object.keys(TABS).forEach(name => {
     const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -40,8 +38,8 @@ function setup() {
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'updateHourly')
     .forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger('updateHourly').timeBased().everyMinutes(15).create();
-  Logger.log(`Setup done. App sheet: ${ss.getUrl()}`);
+  ScriptApp.newTrigger('updateHourly').timeBased().everyMinutes(APP.UPDATE_MINUTES).create();
+  Logger.log(`Setup done (${APP.ENV}). App sheet: ${ss.getUrl()}`);
 }
 
 /** Rebuilds the Hourly tab from every row currently in the logger sheet. */
@@ -66,7 +64,7 @@ function backfillHourly() {
   });
 }
 
-/** Time-trigger entry point (every 15 minutes). */
+/** Time-trigger entry point (every APP.UPDATE_MINUTES minutes). */
 function updateHourly() {
   withLock_(() => {
     const state = loadState_();

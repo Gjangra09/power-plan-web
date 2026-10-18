@@ -1,5 +1,13 @@
 // Shared page chrome and formatting.
 import { signIn, signOut, call, isDemo } from './api.js';
+import { CONFIG } from './config.js';
+
+// UAT pages carry a ribbon and a title prefix so a test version is never mistaken for prod
+if (CONFIG.env === 'uat') {
+  document.title = 'UAT · ' + document.title;
+  document.body.classList.add('env-uat');
+  document.querySelector('.brand')?.after(el('span', { class: 'env-badge', title: 'Test version – changes here do not affect the live app' }, 'UAT'));
+}
 
 export const inr = x => '₹' + Math.round(x).toLocaleString('en-IN');
 export const num = (x, d = 1) => Number(x).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });

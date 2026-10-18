@@ -71,6 +71,9 @@ h2 { font-size: 1.05rem; margin: 0; font-weight: 600; letter-spacing: -0.005em; 
   background: var(--energy); box-shadow: 0 0 18px rgba(255, 138, 61, 0.45);
 }
 .brand__mark svg { width: 17px; height: 17px; fill: #1A1206; }
+/* UAT environment marker (added by ui.js on /uat/ pages) */
+.env-badge { margin-left: -0.9rem; padding: 0.15rem 0.6rem; border-radius: 999px; background: #FF8A3D; color: #1A0F05; font: 700 0.75rem/1.4 var(--display); letter-spacing: 0.08em; }
+body.env-uat .top { box-shadow: inset 0 3px 0 #FF8A3D; }
 .top nav { display: flex; gap: 0.35rem; }
 .top nav a { color: var(--text-muted); text-decoration: none; padding: 0.35rem 0.8rem; border-radius: 999px; font-size: 0.9rem; transition: background 0.2s, color 0.2s; }
 .top nav a:hover { color: var(--text); background: var(--surface); }

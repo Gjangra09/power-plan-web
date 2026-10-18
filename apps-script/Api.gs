@@ -53,7 +53,7 @@ function selfTest() {
 }
 
 function doGet() {
-  return json_({ ok: true, service: 'power-plan', time: new Date().toISOString() });
+  return json_({ ok: true, service: 'power-plan', env: APP.ENV, time: new Date().toISOString() });
 }
 
 // ---------- actions ----------

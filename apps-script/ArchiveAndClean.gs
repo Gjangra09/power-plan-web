@@ -35,6 +35,7 @@ function archiveDryRun() { archiveMain_(true); }
 
 /** Creates the nightly trigger (02:00 in the script's time zone). Run once. */
 function installArchiveTrigger() {
+  requireProdForArchive_();
   ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'archiveRun')
     .forEach(t => ScriptApp.deleteTrigger(t));
@@ -45,6 +46,7 @@ function installArchiveTrigger() {
 function archiveMain_(dry) {
   // Capture the newest readings in the Hourly tab before any logger rows are deleted
   if (!dry) {
+    requireProdForArchive_();
     if (!loadState_()) throw new Error('Run setup() first so the Hourly history is complete.');
     updateHourly();
   }
@@ -58,6 +60,11 @@ function archiveMain_(dry) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Only the prod project may delete logger rows; UAT reads the same sheets and must never change them. */
+function requireProdForArchive_() {
+  if (APP.ENV !== 'prod') throw new Error(`Archive is disabled outside prod (ENV=${APP.ENV}). archiveDryRun() is allowed.`);
 }
 
 function archiveSheet_(cfg, cutoff, dry, started) {
