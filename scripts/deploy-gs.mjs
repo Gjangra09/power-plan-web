@@ -24,13 +24,15 @@ const targets = fs.existsSync(root + 'deploy-targets.json') ? JSON.parse(fs.read
 const deploymentId = targets[env] && targets[env].deploymentId;
 if (!deploymentId) fail(`deploy-targets.json needs {"${env}": {"deploymentId": "AKfy…"}} (the id in the web-app /exec URL)`);
 
-const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: root, stdio: opts.capture ? 'pipe' : 'inherit', encoding: 'utf8', shell: process.platform === 'win32' });
-const clasp = (args, capture) => run('npx', ['clasp', '-P', project, ...args], { capture });
+const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: root, stdio: opts.capture ? 'pipe' : 'inherit', encoding: 'utf8', shell: opts.shell });
+// clasp's own entry file run by Node: no shell, so arguments with spaces stay whole
+const claspBin = fileURLToPath(new URL('node_modules/@google/clasp/build/src/index.js', new URL('..', import.meta.url)));
+const clasp = (args, capture) => run(process.execPath, [claspBin, '-P', project, ...args], { capture });
 
 // 1. Nothing goes out unless the engine copy is current and every test passes
 console.log('1/4 Checking Engine.gs and running the tests…');
 run('node', ['scripts/build-gs.mjs', '--check']);
-run('npm', ['test', '--silent'], { capture: true });
+run(process.execPath, ['--test', 'tests/*.test.js'], { capture: true });
 console.log('    all tests pass');
 
 const commit = run('git', ['rev-parse', '--short', 'HEAD'], { capture: true }).trim();
@@ -43,8 +45,9 @@ clasp(['push', '--force']);
 
 // 3. Freeze it as a version, 4. point the existing deployment (same URL) at it
 console.log('3/4 Creating a version…');
-const out = clasp(['create-version', description], true);
-const version = (out.match(/version (\d+)/i) || [])[1];
+const out = clasp(['--json', 'create-version', description], true);
+let version;
+try { version = JSON.parse(out).versionNumber; } catch { /* reported below */ }
 if (!version) fail('Could not read the new version number from: ' + out);
 console.log(`    version ${version}`);
 console.log('4/4 Moving the web app to it (same /exec URL)…');
