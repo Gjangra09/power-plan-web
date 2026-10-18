@@ -70,7 +70,7 @@ function points() {
 
 export async function mockCall(action, params) {
   await new Promise(r => setTimeout(r, 150));
-  const me = { email: 'you@example.com', name: 'Demo Admin', picture: '', role: 'admin' };
+  const me = { email: 'you@example.com', name: 'Demo Admin', picture: '', role: 'admin', pages: ['summary', 'past', 'breakdown', 'documents', 'health'] };
   switch (action) {
     case 'login': return { ok: true, me, session: 'demo', sessionExp: now + 30 * DAY };
     case 'logout': return { ok: true };
@@ -88,7 +88,11 @@ export async function mockCall(action, params) {
     case 'removeTelegram': Object.assign(telegramDemo, { configured: false, tokenSet: false, chatId: '', botName: '' }); return { ok: true, ...telegramDemo };
     case 'testTelegram': return { ok: true, delivery: 'sent' };
     case 'me': return { ok: true, me };
-    case 'summary': return summary(me);
+    case 'summary':
+      // ?noaccess previews the "no access" screen
+      if (new URLSearchParams(location.search).has('noaccess')) throw Object.assign(new Error("You don't have access to Past cycles yet."), { code: 403, need: 'past' });
+      return summary(me);
+    case 'requestAccess': return { ok: true, page: params.page, label: 'Past cycles', alreadyAsked: false };
     case 'saveBilling': {
       const p = points();
       const energy = p.filter(x => x.ts <= params.ts).pop()?.energy ?? null;

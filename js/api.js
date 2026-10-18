@@ -75,6 +75,7 @@ export async function call(action, params = {}) {
     if (data.code === 401) clearSession();
     const err = new Error(data.error || 'Request failed');
     err.code = data.code;
+    err.need = data.need;   // a page the person may not see (not a sign-out)
     throw err;
   }
   // The backend renews a session that is getting old

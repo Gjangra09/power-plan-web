@@ -172,6 +172,16 @@ body.signed-out .top nav, body.signed-out .who { display: none; }
 .tag--view { background: rgba(45, 212, 191, 0.12); color: var(--teal); }
 .tag--change { background: rgba(255, 181, 71, 0.16); color: var(--amber); }
 .tag--denied { background: rgba(255, 92, 122, 0.16); color: var(--red); }
+.tag--request { background: rgba(167, 139, 250, 0.16); color: var(--violet); }
+
+/* No access to a page: ask the admin */
+.noaccess { max-width: 560px; margin: 3rem auto; text-align: center; }
+.noaccess h1 { font-size: 1.35rem; margin: 0.6rem 0 0.4rem; }
+.noaccess .row { justify-content: center; margin-top: 1.1rem; }
+.noaccess__icon { display: inline-flex; width: 44px; height: 44px; color: var(--violet); }
+.noaccess__icon svg { width: 100%; height: 100%; }
+.noaccess a.btn--ghost { color: var(--text-muted); border-color: var(--border); text-decoration: none; }
+.noaccess a.btn--ghost:hover { color: var(--text); }
 .status { margin-top: 1rem; padding: 0.8rem 1.1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; color: var(--text-muted); }
 .status--demo { color: var(--text); border-left: 4px solid var(--amber); }
 .status--error { color: var(--text); border-left: 4px solid var(--red); }

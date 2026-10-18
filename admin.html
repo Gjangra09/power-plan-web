@@ -16,10 +16,7 @@
 <body>
   <header class="top">
     <a class="brand" href="./"><span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>Power Plan</a>
-    <nav>
-      <a href="./">Summary</a>
-      <a href="admin.html" aria-current="page" data-admin hidden>Admin</a>
-    </nav>
+    <nav id="nav" aria-label="Pages"></nav>
     <div class="who" id="who"></div>
   </header>
 
@@ -129,6 +126,7 @@
             <option value="view">Pages opened</option>
             <option value="change">Changes</option>
             <option value="denied">Blocked attempts</option>
+            <option value="request">Access requests</option>
           </select>
         </label>
         <button class="btn" type="submit">Refresh</button>

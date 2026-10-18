@@ -136,11 +136,15 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ text, setMimeType() { return this; } }) },
   };
   vm.createContext(ctx);
-  for (const f of ['Config.gs', 'Engine.gs', 'Summary.gs', 'Monitor.gs', 'Api.gs']) {
+  // Every file, alphabetically (Access, Api, … Summary): a file must not need another one loaded first
+  const dir = new URL('../../apps-script/', import.meta.url);
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.gs')).sort()) {
     vm.runInContext(fs.readFileSync(new URL(`../../apps-script/${f}`, import.meta.url), 'utf8'), ctx, { filename: f });
   }
   return {
     ctx, source, props, sent,
+    /** Evaluates an expression inside the backend (top-level const/let aren't properties of ctx). */
+    run: code => vm.runInContext(code, ctx),
     get triggers() { return triggers; },
     app: () => books[props.get('APP_SHEET_ID')],
     tab: name => books[props.get('APP_SHEET_ID')].getSheetByName(name),

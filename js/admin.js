@@ -289,7 +289,7 @@ async function toggleCorrection(c) {
 
 // ---------- activity ----------
 
-const TYPE_LABEL = { 'sign-in': 'Signed in', 'sign-out': 'Signed out', view: 'Opened', change: 'Change', denied: 'Blocked' };
+const TYPE_LABEL = { 'sign-in': 'Signed in', 'sign-out': 'Signed out', view: 'Opened', change: 'Change', denied: 'Blocked', request: 'Request' };
 
 // Activity period: last 7 days (default) or everything kept (the newest 5,000 entries)
 let actDays = 7;

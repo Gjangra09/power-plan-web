@@ -11,33 +11,42 @@
  * refused attempts are written to the Activity tab.
  */
 
+// Each action: who may call it (role), the page permission it needs (page, see Access.gs) and the
+// function that runs it, by name: looked up when the action runs, so the order Apps Script loads
+// the files in never matters.
 const ACTIONS = {
-  login:         { role: 'viewer', fn: login_ },
+  login:         { role: 'viewer', fn: 'login_' },
   logout:        { role: 'viewer', fn: () => ({}) },
   me:            { role: 'viewer', fn: (req, user) => ({ me: user }) },
-  summary:       { role: 'viewer', fn: summary_ },
-  saveBilling:   { role: 'admin',  fn: saveBilling_ },
-  deleteLatestBill: { role: 'admin', fn: deleteLatestBill_ },
+  summary:       { role: 'viewer', page: 'summary', fn: 'summary_' },
+  cycles:        { role: 'viewer', page: 'past', fn: () => ({ cycles: cycles_() }) },
+  requestAccess: { role: 'viewer', fn: 'requestAccess_' },
+  saveBilling:   { role: 'admin',  fn: 'saveBilling_' },
+  deleteLatestBill: { role: 'admin', fn: 'deleteLatestBill_' },
   listUsers:     { role: 'admin',  fn: () => ({ users: usersWithLastSeen_() }) },
-  saveUser:      { role: 'admin',  fn: saveUser_ },
-  removeUser:    { role: 'admin',  fn: removeUser_ },
-  listActivity:  { role: 'admin',  fn: listActivity_ },
+  saveUser:      { role: 'admin',  fn: 'saveUser_' },
+  removeUser:    { role: 'admin',  fn: 'removeUser_' },
+  listActivity:  { role: 'admin',  fn: 'listActivity_' },
   listCorrections:     { role: 'admin', fn: () => ({ corrections: corrections_() }) },
-  saveCorrection:      { role: 'admin', fn: saveCorrection_ },
-  setCorrectionActive: { role: 'admin', fn: setCorrectionActive_ },
-  getAlertSettings:    { role: 'admin', fn: alertSettings_ },
-  saveAlertSettings:   { role: 'admin', fn: saveAlertSettings_ },
-  getTelegram:         { role: 'admin', fn: telegramStatus_ },
-  saveTelegram:        { role: 'admin', fn: saveTelegram_ },
-  removeTelegram:      { role: 'admin', fn: removeTelegram_ },
-  testTelegram:        { role: 'admin', fn: testTelegram_ },
+  saveCorrection:      { role: 'admin', fn: 'saveCorrection_' },
+  setCorrectionActive: { role: 'admin', fn: 'setCorrectionActive_' },
+  getAlertSettings:    { role: 'admin', fn: 'alertSettings_' },
+  saveAlertSettings:   { role: 'admin', fn: 'saveAlertSettings_' },
+  getTelegram:         { role: 'admin', fn: 'telegramStatus_' },
+  saveTelegram:        { role: 'admin', fn: 'saveTelegram_' },
+  removeTelegram:      { role: 'admin', fn: 'removeTelegram_' },
+  testTelegram:        { role: 'admin', fn: 'testTelegram_' },
 };
+
+// Page names logged as "Opened …"
+const PAGE_LABELS = { summary: 'Summary', admin: 'Admin', bills: 'Bills', health: 'Health' };
 
 // What goes into the Activity tab for each action: [type, event, details (before → after)], or null to skip
 const ACTIVITY = {
   login:            () => ['sign-in', 'Signed in'],
   logout:           () => ['sign-out', 'Signed out'],
-  summary:          req => (req.page ? ['view', `Opened ${req.page === 'admin' ? 'Admin' : 'Summary'}`] : null),
+  summary:          req => (req.page ? ['view', `Opened ${PAGE_LABELS[req.page] || 'Summary'}`] : null),
+  requestAccess:    (req, r) => (r.alreadyAsked ? null : ['request', requestEvent_(r.page)]),
   saveBilling:      (req, r) => ['change', `Saved billing ${fmt_(r.saved.ts)}`, `start energy ${r.saved.startEnergy} kWh`],
   deleteLatestBill: (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`, r.details],
   saveUser:         (req, r) => ['change', `Added/updated ${String(req.email).trim().toLowerCase()} as ${req.role === 'admin' ? 'admin' : 'viewer'}`, r.details],
@@ -53,7 +62,7 @@ const ACTIVITY = {
 const SESSION_RENEW_MS = 15 * 86400e3; // renew when less than this is left
 
 function doPost(e) {
-  let req;
+  let req, user;
   try {
     req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
   } catch (err) {
@@ -63,8 +72,9 @@ function doPost(e) {
     const action = ACTIONS[req.action];
     if (!action) return json_({ ok: false, code: 400, error: 'Unknown action' });
     const who = req.action === 'login' ? verifyToken_(req.token) : authenticate_(req);
-    const role = roleOf_(who.email);
-    const user = { email: who.email, name: who.name || '', picture: who.picture || '', role: role || '' };
+    const rec = userRecord_(who.email);
+    const role = rec ? rec.role : null;
+    user = { email: who.email, name: who.name || '', picture: who.picture || '', role: role || '', pages: rec ? rec.pages : [] };
     if (!role) {
       logActivity_(user, req, ['denied', 'Not on the users list']);
       return json_({ ok: false, code: 403, error: `${who.email} is not allowed. Ask the admin to add you.` });
@@ -73,13 +83,20 @@ function doPost(e) {
       logActivity_(user, req, ['denied', `Tried admin action "${req.action}"`]);
       return json_({ ok: false, code: 403, error: 'Admin only' });
     }
-    const result = action.fn(req, user, who);
+    if (action.page) requirePage_(user, action.page);
+    const fn = typeof action.fn === 'string' ? globalThis[action.fn] : action.fn;
+    const result = fn(req, user, who);
     const entry = ACTIVITY[req.action] && ACTIVITY[req.action](req, result);
     if (entry) logActivity_(user, req, entry);
     const out = Object.assign({ ok: true }, result);
     if (who.via === 'session' && who.exp - Date.now() < SESSION_RENEW_MS) Object.assign(out, issueSession_(who));
     return json_(out);
   } catch (err) {
+    if (err.need) {
+      // Signed in and listed, but this page isn't ticked for them: not a sign-out
+      logActivity_(user, req, ['denied', `No access to ${PAGES[err.need]}`]);
+      return json_({ ok: false, code: 403, need: err.need, error: err.message });
+    }
     const code = err.code || 500;
     if (code === 500) {
       console.error(err);
@@ -120,6 +137,11 @@ function login_(req, user, who) {
 function summary_(req, user) {
   const now = Date.now();
   const bills = billsSorted_();
+  const pages = user.pages || Object.keys(PAGES);   // internal calls (editor checks) see everything
+  const wanted = req.cycle === undefined || req.cycle === null || req.cycle === '' ? null : Number(req.cycle);
+  const pick = wanted === null ? bills.length - 1 : bills.findIndex(b => b.ts === wanted);
+  if (wanted !== null && pick < 0) throw httpError_(404, 'That bill cycle does not exist.');
+  if (pick >= 0 && pick < bills.length - 1) return pastSummary_(bills, pick, user, pages, now);
   const latest = bills[bills.length - 1] || null;
   const since = latest ? latest.ts - APP.LEAD_HOURS * 3600e3 : now - 7 * 86400e3;
   const raw = hourlyPoints_(since);
@@ -144,8 +166,50 @@ function summary_(req, user) {
       outages: gaps.filter(g => g.kind === 'outage').length,
       corrections: corrections.length,
     });
+    out.cycle = { start: latest.ts, end: out.calc.cycleEnd.getTime(), current: true };
   }
+  return finishSummary_(out, pages);
+}
+
+/** Summary of a closed cycle (needs "Past cycles"): its final figures, ending at the next reading. */
+function pastSummary_(bills, i, user, pages, now) {
+  requirePage_({ pages }, 'past');
+  const bill = bills[i], next = bills[i + 1];
+  const raw = hourlyPoints_(bill.ts - APP.LEAD_HOURS * 3600e3).filter(p => p.ts <= next.ts + 3600e3);
+  const corrections = corrections_().filter(c => c.active);
+  const versions = tariffVersions_();
+  const kept = Quality.cleanPoints(Quality.applyCorrections(raw, corrections)).filter(p => p.ts >= bill.ts && p.ts <= next.ts);
+  const gaps = Quality.findGaps(kept);
+  const out = {
+    me: user,
+    bills: bills.map(b => ({ ts: b.ts, startEnergy: b.startEnergy, expectedNextTs: b.expectedNextTs, note: b.note })),
+    points: Quality.fillGaps(kept).map(p => ({ ts: p.ts, energy: p.energy })),
+    tariff: versions.filter(v => v.from <= bill.ts).pop().tariff,
+    serverTime: now,
+    cycle: { start: bill.ts, end: next.ts, current: false },
+    calc: closedCycleCalc_(bill, next, raw, corrections, versions),
+    quality: Object.assign(Quality.coverage(raw.filter(p => p.ts >= bill.ts && p.ts < next.ts), bill.ts, next.ts), {
+      filledGaps: gaps.filter(g => g.kind === 'filled').length,
+      outages: gaps.filter(g => g.kind === 'outage').length,
+      corrections: corrections.length,
+    }),
+  };
+  return finishSummary_(out, pages);
+}
+
+/** Adds the cycle list for the picker and leaves out what the person may not see. */
+function finishSummary_(out, pages) {
+  if (pages.includes('past')) out.cycles = cycles_();
+  if (out.calc && !pages.includes('breakdown')) stripSlabLines_(out.calc);
   return out;
+}
+
+/** Removes the slab-by-slab lines (Bill breakdown page) from a calculation, in place. */
+function stripSlabLines_(o) {
+  if (!o || typeof o !== 'object') return;
+  if (Array.isArray(o)) { o.forEach(stripSlabLines_); return; }
+  delete o.slabLines;
+  Object.keys(o).forEach(k => stripSlabLines_(o[k]));
 }
 
 /** cycleSummary for the cycle that starts at bill, its start energy corrected like the readings. */
@@ -364,8 +428,8 @@ function sessionSecret_() {
 }
 
 function roleOf_(email) {
-  const u = readTab_('Users').find(r => String(r.Email).toLowerCase() === email);
-  return u ? (u.Role === 'admin' ? 'admin' : 'viewer') : null;
+  const rec = userRecord_(email);
+  return rec ? rec.role : null;
 }
 
 // ---------- activity log ----------

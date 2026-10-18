@@ -118,20 +118,73 @@ function renderProfile(me, exp) {
   box.replaceChildren(btn, menu);
 }
 
-/** Signs in, fills the header, and resolves with the summary payload. */
-export async function boot() {
+// The menu: each page and who may open it (the server enforces the same rules)
+const NAV = [
+  { key: 'summary', href: './', label: 'Summary', allowed: () => true },
+  { key: 'admin', href: 'admin.html', label: 'Admin', allowed: me => me.role === 'admin' },
+];
+
+/** The menu with only the pages this person may open; the current page is marked. */
+export function renderNav(me, current) {
+  const nav = document.getElementById('nav');
+  if (!nav) return;
+  nav.replaceChildren(...NAV.filter(p => p.allowed(me)).map(p =>
+    el('a', { href: p.href, 'aria-current': p.key === current ? 'page' : null }, p.label)));
+}
+
+/**
+ * Signed in, but this page (or part of it) isn't ticked for them: say so and offer to ask the
+ * admin. Never a sign-out.
+ */
+export function showNoAccess(need, label) {
+  const main = document.getElementById('main');
+  main.hidden = true;
+  const msg = el('p', { class: 'msg', role: 'status' });
+  const btn = el('button', { class: 'btn', type: 'button', onclick: async () => {
+    btn.disabled = true;
+    try {
+      const r = await call('requestAccess', { page: need });
+      msg.textContent = r.alreadyAsked ? 'You already asked today – the admin has been told.' : 'Request sent. You can open it once the admin approves.';
+      msg.className = 'msg msg--ok';
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.className = 'msg msg--error';
+      btn.disabled = false;
+    }
+  } }, 'Request access');
+  const box = el('section', { class: 'panel noaccess' },
+    icon('lock', 'noaccess__icon'),
+    el('h1', {}, `You don't have access to ${label || 'this page'} yet`),
+    el('p', { class: 'muted' }, 'The admin decides which pages each family member can see. Ask, and you can open it as soon as they approve.'),
+    el('div', { class: 'row' }, btn, el('a', { class: 'btn btn--ghost', href: './' }, 'Back to Summary')),
+    msg);
+  main.before(box);
+}
+
+/**
+ * Signs in, fills the header and menu, and resolves with the summary payload.
+ * page: which page this is ('summary', 'admin', …), for the menu and the activity log;
+ * params: extra summary parameters (e.g. a cycle).
+ */
+export async function boot(page = location.pathname.endsWith('admin.html') ? 'admin' : 'summary', params = {}) {
   const main = document.getElementById('main');
   if (isDemo()) document.getElementById('demo').hidden = false;
   try {
     await signIn(loginUi());
-    const data = await call('summary', { page: location.pathname.endsWith('admin.html') ? 'admin' : 'summary' });
+    const data = await call('summary', Object.assign({ page }, params));
     const s = currentSession();
-    renderProfile(Object.assign({}, s?.me, data.me), s?.exp);
-    document.querySelectorAll('[data-admin]').forEach(n => { n.hidden = data.me.role !== 'admin'; });
+    const me = Object.assign({}, s?.me, data.me);
+    renderProfile(me, s?.exp);
+    renderNav(me, page);
     main.hidden = false;
     return data;
   } catch (err) {
-    if (err.code === 401 || err.code === 403) {
+    if (err.code === 403 && err.need) {
+      // Listed, but this page isn't ticked for them: offer to ask, keep them signed in
+      const s = currentSession();
+      if (s?.me) { renderProfile(s.me, s.exp); renderNav(s.me, page); }
+      showNoAccess(err.need, err.message.replace(/^You don't have access to (.*) yet\.$/, '$1'));
+    } else if (err.code === 401 || err.code === 403) {
       // Sign-in ended, or access was removed: back to the sign-in screen
       clearSession();
       showError(err.code === 401 ? 'Your sign-in has ended. Reloading…' : `${err.message} Reloading…`);
