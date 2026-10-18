@@ -1,6 +1,6 @@
 // Demo backend used when CONFIG.apiUrl is empty or the URL has ?demo.
 // Synthetic numbers only: no real readings are ever committed to this public repo.
-import { cycleSummary, cycleBreakdown, avgCycleDays, DEFAULT_TARIFF } from './billing.js';
+import { cycleSummary, cycleBreakdown, avgCycleDays, billFor, payableFor, paisa, checkDhbvnBill, compareWithApp, meterCalibration, DEFAULT_TARIFF } from './billing.js';
 
 const asJson = x => JSON.parse(JSON.stringify(x, (k, v) => (v === Infinity ? 1e9 : v)));
 
@@ -58,6 +58,14 @@ const activity = [
   { ts: now - 3 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Added data correction C0', device: 'Edge on Windows', details: 'readings 14 Oct 2026 02:00 – 14 Oct 2026 03:00 ignored · reason: logger glitch after power cut · current cycle 182.4 units → 182.4 units' },
   { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows', details: 'start energy 1500 kWh' },
 ];
+/** A DHBVN-style bill for the closed demo cycle: 505 units (the app's logger says 510). */
+function demoBill() {
+  const iso = ms => new Date(ms + 330 * 60e3).toISOString().slice(0, 10);
+  const b = billFor(505, 63);
+  return { periodFrom: iso(bills[0].ts), periodTo: iso(bills[1].ts), days: 63, units: 505, basis: 'OK', readingOld: 8704, readingNew: 9209, mf: 1, mdiKw: 2.1,
+    slabs: b.slabLines.map(l => ({ units: paisa(l.units), rate: l.rate, amount: l.amount })), arrears: -0.12, energy: b.energy, fixed: b.fixed, fppas: b.fppas,
+    tax: b.municipalTax, duty: b.duty, security: 0, subsidy: 0, total: b.total, sundry: [0.12, 0, 0], payable: payableFor(b.total, -0.12, 0.12).payable, dueDate: iso(bills[1].ts + 20 * DAY) };
+}
 const telegramDemo = { configured: true, tokenSet: true, chatId: '123456789', botName: '@demo_power_bot' };
 const alertDemo = {
   alertMinutes: 2, remindMinutes: 30, watchMinutes: 1, telegram: true, downSince: null,
@@ -118,6 +126,19 @@ export async function mockCall(action, params) {
       if (new URLSearchParams(location.search).has('noaccess')) throw Object.assign(new Error("You don't have access to Past cycles yet."), { code: 403, need: 'past' });
       return summary(me, params);
     case 'cycles': return { ok: true, cycles: summary(me).cycles };
+    case 'listBillDocs': {
+      const f = demoBill();
+      const s = summary(me, { cycle: bills[0].ts });
+      const c = checkDhbvnBill(f);
+      return { ok: true, docs: [{ id: 'D0', periodFrom: f.periodFrom, periodTo: f.periodTo, cycleStart: bills[0].ts, fields: f,
+        check: { linesAddUp: c.linesAddUp, payableAddsUp: c.payableAddsUp, slabsMatch: c.slabsMatch, right: c.right, lines: c.lines },
+        compare: compareWithApp(f, { units: s.calc.unitsSoFar, bill: s.calc.chargesSoFar }), uploadedBy: 'you@example.com', uploadedAt: now - 2 * DAY }],
+        calibration: { current: 1.02, suggestion: meterCalibration([{ dhbvnUnits: f.units, loggerUnits: s.calc.unitsSoFar / 1.02 }]), cycles: [{ periodFrom: f.periodFrom, periodTo: f.periodTo, dhbvnUnits: f.units, loggerUnits: s.calc.unitsSoFar / 1.02, coverage: 0.94 }] } };
+    }
+    case 'getBillFile': throw Object.assign(new Error('Demo mode has no real bill PDF.'), { code: 404 });
+    case 'uploadBill': return { ok: true, id: 'D1', cycleStart: null, details: 'demo' };
+    case 'deleteBillDoc': return { ok: true, id: params.id };
+    case 'applyMeterFactor': return { ok: true, details: `meter factor 1.02 → ${params.factor} (demo, not saved)` };
     case 'requestAccess': return { ok: true, page: params.page, label: 'Past cycles', alreadyAsked: false };
     case 'saveBilling': {
       const p = points();

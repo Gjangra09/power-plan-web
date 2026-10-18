@@ -179,3 +179,90 @@ test('G2 the breakdown comes only with Bill breakdown; current = so far + projec
   assert.equal(f.statement.payable, Math.round(f.bill.total), 'no arrears/sundry until the DHBVN bill is uploaded');
   assert.ok(f.bill.slabLines.length >= 1 && f.whatIf.nextUnit > 0);
 });
+
+// ---------- 1C: uploaded DHBVN bills (G2 comparison, G5 privacy) ----------
+import fs from 'node:fs';
+const { bills: REAL } = JSON.parse(fs.readFileSync(new URL('./fixtures/dhbvn-bills.json', import.meta.url), 'utf8'));
+const PDF = Buffer.from('%PDF-1.4\n% test bill\n').toString('base64');
+const day = ms => new Date(ms + 330 * 60e3).toISOString().slice(0, 10);   // India date
+/** The real Jul–Sep 2026 bill's figures, with reading dates moved onto the test's closed cycle. */
+const billFields = (over = {}) => Object.assign({}, REAL[5], { periodFrom: day(B1), periodTo: day(B2) }, over);
+
+test('1C a confirmed bill is re-checked on the server, stored privately and linked to its cycle', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  const r = b.ctx.uploadBill_({ fields: billFields(), file: { name: 'x.pdf', base64: PDF } }, admin);
+  assert.equal(r.cycleStart, B1, 'linked by reading dates');
+  assert.match(r.details, /496\.6 units, B ₹2208\.03, payable ₹2208/);
+  const docs = b.ctx.billDocs_();
+  assert.equal(docs.length, 1);
+  assert.equal(Object.keys(b.drive.folders).length, 1, 'one private folder');
+  assert.deepEqual(Object.keys(docs[0].fields).sort(), Object.keys(b.ctx.cleanBillFields_(billFields())).sort(), 'only known fields stored');
+});
+
+test('1C refused: figures that don\'t add up, not a PDF, no file, missing period', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  assert.throws(() => b.ctx.uploadBill_({ fields: billFields({ energy: 1900 }), file: { base64: PDF } }, admin), /don't add up/);
+  assert.throws(() => b.ctx.uploadBill_({ fields: billFields(), file: { base64: Buffer.from('hello').toString('base64') } }, admin), /not a PDF/);
+  assert.throws(() => b.ctx.uploadBill_({ fields: billFields(), file: {} }, admin), /Choose the bill PDF/);
+  assert.throws(() => b.ctx.uploadBill_({ fields: billFields({ periodFrom: 'soon' }), file: { base64: PDF } }, admin), /period/);
+  assert.equal(b.ctx.billDocs_().length, 0);
+});
+
+test('1C uploading the same bill again replaces it (old PDF to the bin); removing marks it deleted', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  b.ctx.uploadBill_({ fields: billFields(), file: { base64: PDF } }, admin);
+  const second = b.ctx.uploadBill_({ fields: billFields(), file: { base64: PDF } }, admin);
+  assert.match(second.details, /replaced the earlier upload/);
+  assert.equal(b.ctx.billDocs_().length, 1);
+  assert.equal(Object.values(b.drive.files).filter(f => f.trashed).length, 1);
+  b.ctx.deleteBillDoc_({ id: second.id });
+  assert.equal(b.ctx.billDocs_().length, 0);
+});
+
+test('G5 bill documents need "Bill documents"; the PDF only comes through the app, never a Drive link', () => {
+  const b = ready();
+  const up = b.ctx.uploadBill_({ fields: billFields(), file: { base64: PDF } }, { email: 'admin@example.com', role: 'admin' });
+  for (const action of ['listBillDocs', 'getBillFile']) {
+    const r = post(b, 'past@example.com', { action, id: up.id });
+    assert.deepEqual([r.code, r.need], [403, 'documents'], action);
+  }
+  b.tab('Users').rows.find(r => r[0] === 'past@example.com')[2] = 'past, breakdown, documents';
+  const list = post(b, 'past@example.com', { action: 'listBillDocs' });
+  const file = post(b, 'past@example.com', { action: 'getBillFile', id: up.id });
+  assert.equal(file.base64, PDF);
+  const everything = JSON.stringify([list, file]);
+  assert.ok(!/drive\.google|file\d+|folder\d+/.test(everything), 'no Drive ids or links');
+  assert.equal(list.calibration, null, 'calibration is admin-only');
+  assert.equal(post(b, 'past@example.com', { action: 'uploadBill', fields: billFields(), file: { base64: PDF } }).error, 'Admin only');
+});
+
+test('G2 the uploaded bill: own checks ✅, compared line by line with the app\'s cycle, A and C used in the breakdown', () => {
+  const b = ready();
+  b.ctx.uploadBill_({ fields: billFields(), file: { base64: PDF } }, { email: 'admin@example.com', role: 'admin' });
+  const list = post(b, 'admin@example.com', { action: 'listBillDocs' });
+  const d = list.docs[0];
+  assert.deepEqual([d.check.linesAddUp, d.check.payableAddsUp, d.check.right], [true, true, true]);
+  assert.deepEqual(d.compare.rows.map(r => r.key), ['units', 'energy', 'fixed', 'fppas', 'tax', 'duty', 'total', 'payable']);
+  const appUnits = d.compare.rows[0].app;
+  assert.ok(appUnits > 0 && appUnits < 100, 'the test cycle has far fewer units than the real bill');
+  assert.equal(d.compare.rows[0].status, 'bad');
+  assert.equal(list.calibration.cycles.length, 1);
+  const past = post(b, 'admin@example.com', { action: 'summary', cycle: B1 });
+  assert.equal(past.breakdown.final.statement.arrears, 0.03, 'A from the DHBVN bill');
+  assert.equal(past.dhbvn.payable, 2208);
+  assert.equal(b.ctx.cycles_()[0].dhbvnTotal, 2208.03);
+});
+
+test('1C applying a calibrated meter factor makes a new tariff version and the cycles follow it', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  const before = b.ctx.cycles_()[0].units;
+  const r = b.ctx.applyMeterFactor_({ factor: 1.01, from: B1 }, admin);
+  assert.match(r.details, /meter factor 1\.02 → 1\.01 from .* \(tariff version v2\)/);
+  const after = b.ctx.cycles_()[0].units;
+  assert.ok(Math.abs(after - before / 1.02 * 1.01) < 1e-9);
+  assert.throws(() => b.ctx.applyMeterFactor_({ factor: 2 }, admin), /between 0\.9 and 1\.1/);
+});

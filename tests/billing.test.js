@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  billFor, billForParts, tariffParts, payableFor, paisa, normalizeTariff, whatIf, cycleBreakdown,
+  billFor, billForParts, tariffParts, payableFor, paisa, normalizeTariff, whatIf, cycleBreakdown, checkDhbvnBill, compareWithApp, meterCalibration,
   avgCycleDays, cycleSummary, energyAt, dayKey, DEFAULT_TARIFF,
 } from '../js/billing.js';
 
@@ -190,4 +190,37 @@ test('cycleBreakdown: the current cycle gives "so far" and "projected"', () => {
   assert.deepEqual(Object.keys(b), ['soFar', 'projected']);
   assert.equal(b.projected.statement.payable, Math.round(billFor(300, 60).total));
   assert.equal(b.soFar.statement.arrears, 0);
+});
+
+// ---------- G2: uploaded bills ----------
+
+for (const b of BILLS) {
+  test(`G2 "Is DHBVN's bill right?" – ${b.period}: lines add up, payable adds up, tariff gives the same lines`, () => {
+    const c = checkDhbvnBill(b);
+    assert.deepEqual([c.linesAddUp, c.payableAddsUp, c.slabsMatch, c.right], [true, true, true, true]);
+  });
+}
+
+test('G2 a bill whose figures do not add up, or whose energy line is off, is flagged', () => {
+  const b = { ...BILLS[5], energy: BILLS[5].energy + 10 };
+  const c = checkDhbvnBill(b);
+  assert.equal(c.linesAddUp, false);
+  assert.equal(c.right, false);
+  assert.deepEqual(c.lines.filter(l => !l.ok).map(l => l.key), ['energy']);
+});
+
+test('G2 comparison with the app: same units → all lines ok; 2% more units → units warn, money follows', () => {
+  const b = BILLS[5];
+  const same = compareWithApp(b, { units: b.units, bill: billFor(b.units, b.days) });
+  assert.ok(same.rows.every(r => r.status === 'ok'), JSON.stringify(same.rows.filter(r => r.status !== 'ok')));
+  const more = compareWithApp(b, { units: b.units * 1.02, bill: billFor(b.units * 1.02, b.days) });
+  const units = more.rows.find(r => r.key === 'units');
+  assert.deepEqual([units.status, units.reason], ['warn', 'logger vs meter (see calibration)']);
+  assert.ok(more.rows.filter(r => r.key !== 'units' && r.status !== 'ok').every(r => r.reason === 'follows the unit difference'));
+  assert.ok(Math.abs(more.unitsRatio - 1 / 1.02) < 1e-9);
+});
+
+test('meter calibration: DHBVN ÷ logger units, weighted by units, over usable cycles', () => {
+  assert.deepEqual(meterCalibration([{ dhbvnUnits: 101, loggerUnits: 100 }, { dhbvnUnits: 303, loggerUnits: 300 }, { dhbvnUnits: 50, loggerUnits: 0 }]), { factor: 1.01, cycles: 2 });
+  assert.equal(meterCalibration([]), null);
 });

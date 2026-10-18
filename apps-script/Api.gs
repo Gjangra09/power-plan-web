@@ -21,6 +21,11 @@ const ACTIONS = {
   summary:       { role: 'viewer', page: 'summary', fn: 'summary_' },
   cycles:        { role: 'viewer', page: 'past', fn: () => ({ cycles: cycles_() }) },
   requestAccess: { role: 'viewer', fn: 'requestAccess_' },
+  listBillDocs:  { role: 'viewer', page: 'documents', fn: 'listBillDocs_' },
+  getBillFile:   { role: 'viewer', page: 'documents', fn: 'getBillFile_' },
+  uploadBill:    { role: 'admin',  fn: 'uploadBill_' },
+  deleteBillDoc: { role: 'admin',  fn: 'deleteBillDoc_' },
+  applyMeterFactor: { role: 'admin', fn: 'applyMeterFactor_' },
   saveBilling:   { role: 'admin',  fn: 'saveBilling_' },
   deleteLatestBill: { role: 'admin', fn: 'deleteLatestBill_' },
   listUsers:     { role: 'admin',  fn: () => ({ users: usersWithLastSeen_() }) },
@@ -47,6 +52,10 @@ const ACTIVITY = {
   logout:           () => ['sign-out', 'Signed out'],
   summary:          req => (req.page ? ['view', `Opened ${PAGE_LABELS[req.page] || 'Summary'}`] : null),
   requestAccess:    (req, r) => (r.alreadyAsked ? null : ['request', requestEvent_(r.page)]),
+  getBillFile:      (req, r) => ['view', `Opened bill PDF ${r.name}`],
+  uploadBill:       (req, r) => ['change', 'Uploaded a DHBVN bill', r.details],
+  deleteBillDoc:    (req, r) => ['change', 'Removed an uploaded DHBVN bill', r.details],
+  applyMeterFactor: (req, r) => ['change', 'Changed the meter factor', r.details],
   saveBilling:      (req, r) => ['change', `Saved billing ${fmt_(r.saved.ts)}`, `start energy ${r.saved.startEnergy} kWh`],
   deleteLatestBill: (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`, r.details],
   saveUser:         (req, r) => ['change', `Added/updated ${String(req.email).trim().toLowerCase()} as ${req.role === 'admin' ? 'admin' : 'viewer'}`, r.details],
@@ -200,15 +209,13 @@ function pastSummary_(bills, i, user, pages, now) {
 /** Adds the cycle list for the picker and leaves out what the person may not see. */
 function finishSummary_(out, pages) {
   if (pages.includes('past')) out.cycles = cycles_();
-  if (out.calc && pages.includes('breakdown')) out.breakdown = Billing.cycleBreakdown(out.calc, out.cycle.current, billExtras_(out.cycle));
+  const extras = out.cycle ? billExtras_(out.cycle) : {};
+  if (out.calc && pages.includes('breakdown')) out.breakdown = Billing.cycleBreakdown(out.calc, out.cycle.current, extras);
+  if (extras.dhbvn && pages.includes('documents')) out.dhbvn = extras.dhbvn;   // DHBVN's own bill for this cycle
   if (out.calc && !pages.includes('breakdown')) stripSlabLines_(out.calc);
   return out;
 }
 
-/** Arrears (A) and sundry (C) for a cycle, from its confirmed DHBVN bill (Phase 1C); none yet otherwise. */
-function billExtras_(cycle) {
-  return {};
-}
 
 /** Removes the slab-by-slab lines (Bill breakdown page) from a calculation, in place. */
 function stripSlabLines_(o) {

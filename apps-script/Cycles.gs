@@ -36,8 +36,12 @@ function cycles_() {
     }
     props.setProperty('CYCLES_KEY', key);
   }
+  // DHBVN's own figures for cycles with a confirmed uploaded bill (not stored: uploads change them)
+  const dhbvn = {};
+  billDocs_().forEach(d => { if (d.cycleStart) dhbvn[d.cycleStart] = d.fields; });
   const latest = bills[bills.length - 1];
-  const out = closed.map(c => Object.assign(c, { current: false }));
+  const out = closed.map(c => Object.assign(c, { current: false },
+    dhbvn[c.start] ? { dhbvnTotal: dhbvn[c.start].total, dhbvnUnits: dhbvn[c.start].units, dhbvnPayable: dhbvn[c.start].payable } : { dhbvnTotal: null }));
   if (latest) out.push({ start: latest.ts, end: latest.expectedNextTs || null, current: true });
   return out;
 }

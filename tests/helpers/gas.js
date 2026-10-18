@@ -92,6 +92,10 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
   const source = books.src.sheets[0];
   source.rows.push(['Timestamp', 'Voltage', 'Current', 'Power', 'Energy']);
   let triggers = [];
+  // Drive: folders and files in memory
+  const drive = { folders: {}, files: {}, n: 0 };
+  const makeFile = (blob) => { const id = 'file' + (++drive.n); const f = { id, blob, trashed: false, getId: () => id, getName: () => blob.getName(), getBlob: () => blob, setTrashed: v => { f.trashed = v; } }; drive.files[id] = f; return f; };
+  const makeBlob = (bytes, type, name) => ({ getBytes: () => bytes, getContentType: () => type, getName: () => name });
   const sent = [];
   let uuid = 0;
   const ctx = {
@@ -105,6 +109,9 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
         throw new Error('format not faked: ' + f);
       },
       getUuid: () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, '0')}`,
+      base64Decode: s => [...Buffer.from(s, 'base64')],
+      base64Encode: bytes => Buffer.from(bytes).toString('base64'),
+      newBlob: (bytes, type, name) => makeBlob(bytes, type, name),
     },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: k => (props.has(k) ? props.get(k) : null),
@@ -134,6 +141,11 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
       return reply(200, { ok: true });
     } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: text => ({ text, setMimeType() { return this; } }) },
+    DriveApp: {
+      createFolder: name => { const id = 'folder' + (++drive.n); const folder = { id, name, getId: () => id, createFile: blob => makeFile(blob) }; drive.folders[id] = folder; return folder; },
+      getFolderById: id => drive.folders[id],
+      getFileById: id => { if (!drive.files[id]) throw new Error('No file ' + id); return drive.files[id]; },
+    },
   };
   vm.createContext(ctx);
   // Every file, alphabetically (Access, Api, … Summary): a file must not need another one loaded first
@@ -142,7 +154,7 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
     vm.runInContext(fs.readFileSync(new URL(`../../apps-script/${f}`, import.meta.url), 'utf8'), ctx, { filename: f });
   }
   return {
-    ctx, source, props, sent,
+    ctx, source, props, sent, drive,
     /** Evaluates an expression inside the backend (top-level const/let aren't properties of ctx). */
     run: code => vm.runInContext(code, ctx),
     get triggers() { return triggers; },

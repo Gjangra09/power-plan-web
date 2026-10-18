@@ -1,0 +1,31 @@
+Due Date: 01/06/2026
+Meter and Read Details (* Latest MCO is shown in case of multiple MCO )
+Meter No. Meter Reading Date Period
+Days MDI Unit Meter Reading M.F. Cons
+Units
+Billed
+Units
+Bill
+Basis
+Read
+Rmrk Mtr Sts
+Old New Old New
+METER 28/03/2026 22/05/2026 55 2.08 (KW) kWh 9482.3 9675 1 192.7 192.7 OK OK A
+Bill Component wise Details
+Sr No. Description Amount ( )
+A Arrears Outstanding( ) -0.43
+1 Energy Charges 568.47
+2 Fixed Charges / Recon FC 0.00/0.00
+3 FPPAS@ 47 Paisa/Unit 0.00
+4 Municipal Tax / Panchayat Tax @ 2%[1+2+3] 11.37
+5 Electricity Duty @ 10 Paisa/Unit 19.27
+6 #Security Review Charges / NE Charges 0.00
+7 Govt. Subsidy / Prepaid Rebate 0.00/0.00
+B Total Current Cycle Charges [1 To 7 ] 599.11
+C Sundry Charges/Allowances Incl. Interest on
+Security/ Ebill Rebate 0.43/-175.71/0.00
+Total Payable Amount [A+B+C] 423.00
+Slab Calculation
+Units Rate Amount ( )
+192.7 2.950 568.47
+Total (Energy Charges) 568.47

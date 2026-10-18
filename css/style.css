@@ -355,6 +355,21 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
   .grid2 { grid-template-columns: 1fr; }
 }
 
+/* Uploaded bills */
+.upload input[type=file] { color: var(--text-muted); margin: 0.5rem 0; }
+.review { margin-top: 1rem; }
+.review__grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.review__preview { width: 100%; height: auto; border-radius: 10px; background: #fff; }
+.review__fields th { text-align: left; font-weight: 500; color: var(--text-muted); width: 46%; }
+.review__fields input { width: 100%; }
+.field--missing { border-color: var(--red) !important; box-shadow: 0 0 0 2px rgba(255, 92, 122, 0.25); }
+.checks { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+.check { font-size: 0.82rem; padding: 0.3rem 0.65rem; border-radius: 999px; background: var(--surface-2); }
+.check--ok { color: var(--green); }
+.check--warn { color: var(--amber); }
+.check--bad { color: var(--red); }
+@media (max-width: 760px) { .review__grid { grid-template-columns: 1fr; } }
+
 /* Printing the Bills page: just the bill */
 @media print {
   body { background: #fff !important; color: #000; }

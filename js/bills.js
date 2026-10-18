@@ -1,8 +1,12 @@
-// Bills page. Breakdown tab: the cycle's bill laid out like the DHBVN bill (slab calculation and
-// bill components A, 1–7, B, C, payable), all calculated by the server (data.breakdown).
+// Bills page.
+// - Breakdown: the cycle's bill laid out like the DHBVN bill (slab calculation and bill components
+//   A, 1–7, B, C, payable), all calculated by the server (data.breakdown).
+// - Uploaded bills: DHBVN e-bill PDFs read here with pdf.js, confirmed by the admin, compared with
+//   the app line by line (js/bills-upload.js).
 import { boot, el, inr, num, dateTime, dateOnly, showNoAccess } from './ui.js';
 import { normalizeTariff } from './billing.js';
 import { cycleParam, renderCycleBar } from './cycle.js';
+import { renderUploads } from './bills-upload.js';
 
 const rs = x => '₹' + Number(x).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const can = (me, page) => me.role === 'admin' || (me.pages || []).includes(page);
@@ -16,16 +20,18 @@ function render(data) {
 
   const tabs = [];
   if (can(me, 'breakdown')) tabs.push({ id: 'tabBreakdown', label: 'Breakdown', show: () => renderBreakdown(data) });
-  tabs.forEach((t, i) => { if (i === 0) t.show(); });
+  if (can(me, 'documents')) tabs.push({ id: 'tabUploads', label: 'Uploaded bills', show: () => renderUploads(me) });
+  // bills.html#uploads opens the Uploaded bills tab
+  const first = Math.max(0, tabs.findIndex(t => location.hash === '#uploads' && t.id === 'tabUploads'));
   const bar = document.getElementById('billTabs');
+  const open = t => {
+    tabs.forEach(x => { document.getElementById(x.id).hidden = x !== t; });
+    bar.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', String(tabs[i] === t)));
+    t.show();
+  };
   bar.hidden = tabs.length < 2;
-  bar.replaceChildren(...tabs.map((t, i) => el('button', { class: 'seg__btn', type: 'button', role: 'tab', 'aria-pressed': String(i === 0),
-    onclick: e => {
-      tabs.forEach(x => { document.getElementById(x.id).hidden = x !== t; });
-      bar.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
-      t.show();
-    } }, t.label)));
-  document.getElementById(tabs[0].id).hidden = false;
+  bar.replaceChildren(...tabs.map(t => el('button', { class: 'seg__btn', type: 'button', role: 'tab', onclick: () => open(t) }, t.label)));
+  open(tabs[first]);
   document.getElementById('print').addEventListener('click', () => window.print());
 }
 
@@ -77,6 +83,7 @@ function showPart(data, key, tariff) {
     ...fact('Average', `${num(avg, 2)} units/day`, `≈ ${num(avg * 30, 0)} units/month`),
     ...fact('Band', bill.band, `${bill.band === 'B' ? 'above' : 'at or below'} ${tariff.bandBAbovePerDay} units/day`),
     ...fact('FPPAS', bill.fppas > 0 ? 'charged' : 'not charged', `${num(avg * 30, 0)} units/month ${bill.fppas > 0 ? '≥' : '<'} ${tariff.fppasFromMonthly}`),
+    ...(key === 'final' && data.dhbvn ? fact('DHBVN bill', `${num(data.dhbvn.units, 1)} units · B ${rs(data.dhbvn.total)} · payable ${rs(data.dhbvn.payable)}`, 'compared line by line under Uploaded bills') : []),
   );
 
   // Slab calculation, as on the DHBVN bill

@@ -164,6 +164,77 @@ var Billing = (function () {
       : { final: part(s.chargesSoFar, s.unitsSoFar, s.daysElapsed) };
   }
 
+  /**
+   * Checks a DHBVN bill's own figures (fields as read by js/billparse.js):
+   * - linesAddUp: lines 1–7 add up to B; payableAddsUp: A + B + C rounds to the payable
+   * - right ("Is DHBVN's bill right?"): the tariff applied to the bill's own units and days gives
+   *   the same slab lines and components
+   */
+  function checkDhbvnBill(f, tariff = DEFAULT_TARIFF) {
+    const sundry = (f.sundry || []).reduce((s, x) => s + x, 0);
+    const sum = paisa(f.energy + f.fixed + f.fppas + f.tax + f.duty + (f.security || 0) + (f.subsidy || 0));
+    const r = billFor(f.units, f.days, tariff);
+    const lines = [
+      ['energy', 'Energy charges', f.energy, r.energy],
+      ['fixed', 'Fixed charges', f.fixed, r.fixed],
+      ['fppas', 'FPPAS', f.fppas, r.fppas],
+      ['tax', 'Municipal tax', f.tax, r.municipalTax],
+      ['duty', 'Electricity duty', f.duty, r.duty],
+      ['total', 'Total B', f.total, r.total],
+    ].map(([key, label, dhbvn, recalc]) => ({ key, label, dhbvn, recalc, ok: Math.abs(dhbvn - recalc) < 0.005 }));
+    const slabsMatch = (f.slabs || []).length === r.slabLines.length &&
+      f.slabs.every((s, i) => Math.abs(s.units - r.slabLines[i].units) < 0.05 && s.rate === r.slabLines[i].rate && Math.abs(s.amount - r.slabLines[i].amount) < 0.005);
+    return {
+      linesAddUp: sum === paisa(f.total),
+      payableAddsUp: payableFor(f.total, f.arrears, sundry).payable === Math.round(f.payable),
+      slabsMatch, lines, recalc: r,
+      right: slabsMatch && lines.every(l => l.ok),
+    };
+  }
+
+  /**
+   * DHBVN's bill against the app's figures for the same cycle (app = {units, bill}): per line the
+   * difference and a status (ok ≤ ₹1 or 0.5 %, warn ≤ 3 %, bad above), with the likely reason.
+   */
+  function compareWithApp(f, app) {
+    const sundry = (f.sundry || []).reduce((s, x) => s + x, 0);
+    const appPay = payableFor(app.bill.total, f.arrears, sundry).payable;
+    const status = (d, base, abs) => {
+      const pct = base ? Math.abs(d) / Math.abs(base) : 0;
+      return Math.abs(d) <= abs || pct <= 0.005 ? 'ok' : pct <= 0.03 ? 'warn' : 'bad';
+    };
+    const unitsDiff = app.units - f.units;
+    const unitsStatus = status(unitsDiff, f.units, 0.05);
+    const rows = [['units', 'Units (kWh)', f.units, app.units]].concat([
+      ['energy', 'Energy charges', f.energy, app.bill.energy],
+      ['fixed', 'Fixed charges', f.fixed, app.bill.fixed],
+      ['fppas', 'FPPAS', f.fppas, app.bill.fppas],
+      ['tax', 'Municipal tax', f.tax, app.bill.municipalTax],
+      ['duty', 'Electricity duty', f.duty, app.bill.duty],
+      ['total', 'Total B', f.total, app.bill.total],
+      ['payable', 'Payable [A+B+C]', f.payable, appPay],
+    ]).map(([key, label, dhbvn, mine]) => {
+      const diff = mine - dhbvn;
+      const st = key === 'units' ? unitsStatus : status(diff, dhbvn, 1);
+      const reason = st === 'ok' ? '' : key === 'units' ? 'logger vs meter (see calibration)'
+        : unitsStatus !== 'ok' ? 'follows the unit difference' : 'rate difference: check the tariff';
+      return { key, label, dhbvn, app: mine, diff, status: st, reason };
+    });
+    return { rows, unitsRatio: f.units / app.units };
+  }
+
+  /**
+   * The meter factor suggested by confirmed bills: DHBVN units ÷ logger units over the cycles with
+   * good logger coverage, weighted by units. items = [{dhbvnUnits, loggerUnits}] (logger units
+   * before any meter factor). Returns {factor, cycles} or null without usable cycles.
+   */
+  function meterCalibration(items) {
+    const use = items.filter(i => i.dhbvnUnits > 0 && i.loggerUnits > 0);
+    if (!use.length) return null;
+    const sum = k => use.reduce((s, i) => s + i[k], 0);
+    return { factor: Math.round(sum('dhbvnUnits') / sum('loggerUnits') * 10000) / 10000, cycles: use.length };
+  }
+
   /** Average length in days between consecutive bill dates (Date objects, any order). */
   function avgCycleDays(billDates) {
     const t = billDates.map(d => d.getTime()).sort((a, b) => a - b);
@@ -297,7 +368,7 @@ var Billing = (function () {
     return new Date(t - (((t % DAY_MS) + DAY_MS) % DAY_MS) - IST_OFFSET_MS);
   }
 
-  return { DEFAULT_TARIFF, normalizeTariff, paisa, billFor, billForParts, tariffParts, payableFor, whatIf, cycleBreakdown, avgCycleDays, dayKey, cycleSummary, energyAt };
+  return { DEFAULT_TARIFF, normalizeTariff, paisa, billFor, billForParts, tariffParts, payableFor, whatIf, cycleBreakdown, checkDhbvnBill, compareWithApp, meterCalibration, avgCycleDays, dayKey, cycleSummary, energyAt };
 })();
 
 // ---- js/quality.js ----
