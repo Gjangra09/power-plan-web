@@ -44,24 +44,58 @@ function renderBills(bills) {
   const sorted = [...bills].sort((a, b) => b.ts - a.ts);
   table.replaceChildren(
     el('tr', {}, el('th', {}, 'Billing time'), el('th', {}, 'Energy at billing'), el('th', {}, 'Expected next'), el('th', {}, 'Note'), el('th', {}, '')),
-    ...sorted.map((b, i) => el('tr', {},
-      el('td', {}, dateTime(b.ts)),
-      el('td', {}, b.startEnergy == null ? '— (before logger)' : `${num(b.startEnergy, 3)} kWh`),
-      el('td', {}, b.expectedNextTs ? dateOnly(b.expectedNextTs) : 'auto'),
-      el('td', {}, b.note || ''),
-      el('td', {}, i === 0 && sorted.length > 1
-        ? el('button', { class: 'btn btn--ghost', onclick: () => deleteLatest(b) }, 'Delete')
-        : ''),
-    )));
+    ...sorted.map((b, i) => billRow(b, i === 0, sorted.length)));
 }
 
-async function deleteLatest(b) {
-  if (!confirm(`Delete the billing of ${dateTime(b.ts)}? The previous billing becomes the current cycle.`)) return;
+function billRow(b, newest, count) {
+  const row = el('tr', {},
+    el('td', {}, dateTime(b.ts), newest ? el('div', { class: 'muted-sm' }, 'current cycle starts here') : ''),
+    el('td', {}, b.startEnergy == null ? '— (before logger)' : `${num(b.startEnergy, 3)} kWh`),
+    el('td', {}, b.expectedNextTs ? dateOnly(b.expectedNextTs) : 'auto'),
+    el('td', {}, b.note || ''),
+    el('td', { class: 'row-actions' },
+      el('button', { class: 'btn btn--small', type: 'button', onclick: () => row.replaceWith(billEditor(b)) }, 'Edit'),
+      count > 1 ? el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: () => deleteBill(b, newest) }, 'Delete') : ''));
+  return row;
+}
+
+/** The row turned into a small form: time, expected next reading, note. */
+function billEditor(b) {
+  const time = el('input', { type: 'datetime-local', value: toLocalInput(new Date(b.ts)), max: toLocalInput(new Date()), required: 'required' });
+  const next = el('input', { type: 'date', value: b.expectedNextTs ? toLocalInput(new Date(b.expectedNextTs)).slice(0, 10) : '' });
+  const note = el('input', { type: 'text', maxlength: '200', value: b.note || '' });
+  const msg = document.getElementById('billMsg');
+  const save = async () => {
+    try {
+      const r = await call('updateBilling', {
+        ts: b.ts, newTs: new Date(time.value).getTime(),
+        expectedNextTs: next.value ? new Date(next.value + 'T00:00:00').getTime() : null,
+        note: note.value,
+      });
+      renderBills((await call('summary')).bills);
+      setMsg(msg, `Saved: ${r.details}.`, true);
+      loadActivity();
+    } catch (err) { setMsg(msg, err.message, false); }
+  };
+  return el('tr', { class: 'editing' },
+    el('td', {}, time, el('div', { class: 'muted-sm' }, 'A new time looks up the energy again')),
+    el('td', { class: 'muted' }, 'from the logger'),
+    el('td', {}, next),
+    el('td', {}, note),
+    el('td', { class: 'row-actions' },
+      el('button', { class: 'btn btn--small', type: 'button', onclick: save }, 'Save'),
+      el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: async () => renderBills((await call('summary')).bills) }, 'Cancel')));
+}
+
+async function deleteBill(b, newest) {
+  const effect = newest ? 'The reading before it becomes the start of the current cycle.' : 'The cycles before and after it become one cycle.';
+  if (!confirm(`Delete the billing of ${dateTime(b.ts)}? ${effect}`)) return;
   const msg = document.getElementById('billMsg');
   try {
-    await call('deleteLatestBill');
+    await call('deleteBilling', { ts: b.ts });
     renderBills((await call('summary')).bills);
-    setMsg(msg, 'Deleted.', true);
+    setMsg(msg, `Deleted the billing of ${dateTime(b.ts)}.`, true);
+    loadActivity();
   } catch (err) {
     setMsg(msg, err.message, false);
   }

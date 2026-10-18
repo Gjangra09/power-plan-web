@@ -60,7 +60,7 @@ const APP = {
 // (tab_ in Summary.gs), so a newer version never needs a manual migration step.
 const TABS = {
   Hourly: ['Hour', 'LastTsMs', 'Energy', 'Readings', 'AvgPowerW', 'LoggerRows', 'LastRowTsMs'],
-  Bills: ['BillTsMs', 'BillTime', 'StartEnergy', 'ExpectedNextMs', 'Note', 'CreatedBy', 'CreatedAt'],
+  Bills: ['BillTsMs', 'BillTime', 'StartEnergy', 'ExpectedNextMs', 'Note', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt'],
   Config: ['Key', 'Value'],
   Users: ['Email', 'Role', 'Pages'],
   Activity: ['Time', 'Email', 'Name', 'Role', 'Type', 'Event', 'Device', 'Details'],

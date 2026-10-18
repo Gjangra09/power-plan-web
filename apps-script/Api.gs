@@ -27,6 +27,8 @@ const ACTIONS = {
   deleteBillDoc: { role: 'admin',  fn: 'deleteBillDoc_' },
   applyMeterFactor: { role: 'admin', fn: 'applyMeterFactor_' },
   saveBilling:   { role: 'admin',  fn: 'saveBilling_' },
+  updateBilling: { role: 'admin',  fn: 'updateBilling_' },
+  deleteBilling: { role: 'admin',  fn: 'deleteBilling_' },
   deleteLatestBill: { role: 'admin', fn: 'deleteLatestBill_' },
   listUsers:     { role: 'admin',  fn: () => ({ users: usersWithLastSeen_() }) },
   saveUser:      { role: 'admin',  fn: 'saveUser_' },
@@ -63,6 +65,8 @@ const ACTIVITY = {
   applyMeterFactor: (req, r) => ['change', 'Changed the meter factor', r.details],
   saveBilling:      (req, r) => ['change', `Saved billing ${fmt_(r.saved.ts)}`, `start energy ${r.saved.startEnergy} kWh`],
   deleteLatestBill: (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`, r.details],
+  updateBilling:    (req, r) => ['change', `Edited billing ${fmt_(r.before)}`, r.details],
+  deleteBilling:    (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`, r.details],
   saveUser:         (req, r) => ['change', `Added/updated ${String(req.email).trim().toLowerCase()} as ${req.role === 'admin' ? 'admin' : 'viewer'}`, r.details],
   removeUser:       (req, r) => ['change', `Removed ${String(req.email).trim().toLowerCase()}`, r.details],
   saveCorrection:      (req, r) => ['change', `Added data correction ${r.saved.id}`, r.details],
@@ -242,22 +246,84 @@ function cycleCalc_(bill, points, corrections, versions, now, typicalDays) {
   });
 }
 
+// Two readings closer than this are the same reading entered twice
+const DUPLICATE_BILL_MS = 3600e3;
+
+/**
+ * Adds a meter reading (billing). Any date is allowed (also a missed earlier reading); the energy
+ * at that moment is looked up from the logger. Only the newest reading must have logger data,
+ * because the current cycle is counted from it.
+ */
 function saveBilling_(req, user) {
   const ts = Number(req.ts);
-  if (!Number.isFinite(ts) || ts > Date.now() + 5 * 60e3) throw httpError_(400, 'Billing time must be a valid time, not in the future.');
   const bills = billsSorted_();
-  const prev = bills[bills.length - 1];
-  if (prev && ts <= prev.ts) throw httpError_(400, `Billing time must be after the previous bill (${fmt_(prev.ts)}).`);
-  const expectedNext = req.expectedNextTs ? Number(req.expectedNextTs) : '';
-  if (expectedNext !== '' && !(expectedNext > ts)) throw httpError_(400, 'Expected next reading must be after the billing time.');
-
-  const startEnergy = energyAt_(ts, hourlyPoints_(ts - 3 * 3600e3));
-  if (startEnergy === '') throw httpError_(400, 'No logger readings around that time, so the starting meter energy cannot be found.');
+  checkBillTime_(ts, bills, null);
+  const latest = !bills.length || ts > bills[bills.length - 1].ts;
+  const expectedNext = expectedNext_(req.expectedNextTs, ts);
+  const startEnergy = startEnergyAt_(ts, latest);
   const note = String(req.note || '').slice(0, 200);
   withLock_(() => {
-    addRow_(tab_('Bills'), [ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date()]);
+    addRow_(tab_('Bills'), [ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date(), '', '']);
   });
   return { saved: { ts, startEnergy, expectedNextTs: expectedNext || null } };
+}
+
+/** Changes a reading's time, expected next reading or note. A new time looks up the energy again. */
+function updateBilling_(req, user) {
+  const bills = billsSorted_();
+  const b = bills.find(x => x.ts === Number(req.ts));
+  if (!b) throw httpError_(404, 'That billing is not there any more – reload the page.');
+  const ts = req.newTs === undefined || req.newTs === null || req.newTs === '' ? b.ts : Number(req.newTs);
+  checkBillTime_(ts, bills, b.ts);
+  const others = bills.filter(x => x !== b);
+  const latest = !others.length || ts > others[others.length - 1].ts;
+  const startEnergy = ts === b.ts && b.startEnergy != null ? b.startEnergy : startEnergyAt_(ts, latest);
+  const expectedNext = expectedNext_(req.expectedNextTs, ts);
+  const note = String(req.note === undefined ? b.note || '' : req.note).slice(0, 200);
+  withLock_(() => {
+    const sh = tab_('Bills');
+    sh.getRange(b.row, 1, 1, 5).setValues([[ts, fmt_(ts), startEnergy, expectedNext, cellText_(note)]]);
+    sh.getRange(b.row, 8, 1, 2).setValues([[user.email, new Date()]]);
+  });
+  const changes = [];
+  if (ts !== b.ts) changes.push(`time ${fmt_(b.ts)} → ${fmt_(ts)} (energy ${energyText_(b.startEnergy)} → ${energyText_(startEnergy)})`);
+  if ((b.expectedNextTs || '') !== expectedNext) changes.push(`expected next ${b.expectedNextTs ? fmt_(b.expectedNextTs) : 'auto'} → ${expectedNext ? fmt_(expectedNext) : 'auto'}`);
+  if (String(b.note || '') !== note) changes.push(`note "${b.note || ''}" → "${note}"`);
+  return { saved: { ts, startEnergy: startEnergy === '' ? null : startEnergy }, before: b.ts, details: changes.join(' · ') || 'no change' };
+}
+
+/** Deletes any reading (e.g. one entered by mistake); the cycles on both sides become one. */
+function deleteBilling_(req) {
+  const bills = billsSorted_();
+  const b = bills.find(x => x.ts === Number(req.ts));
+  if (!b) throw httpError_(404, 'That billing is not there any more – reload the page.');
+  if (bills.length <= 1) throw httpError_(400, 'Keep at least one billing: the current cycle starts from it.');
+  withLock_(() => tab_('Bills').deleteRow(b.row));
+  return { deleted: b.ts, details: `was: ${fmt_(b.ts)}, energy ${energyText_(b.startEnergy)}, note "${b.note || ''}"` };
+}
+
+function checkBillTime_(ts, bills, except) {
+  if (!Number.isFinite(ts) || ts <= 0 || ts > Date.now() + 5 * 60e3) throw httpError_(400, 'Billing time must be a valid time, not in the future.');
+  const clash = bills.find(b => b.ts !== except && Math.abs(b.ts - ts) < DUPLICATE_BILL_MS);
+  if (clash) throw httpError_(400, `There is already a billing at ${fmt_(clash.ts)} – edit or delete that one instead.`);
+}
+
+/** Logger energy at a reading time; '' before the logger existed (allowed except for the newest reading). */
+function startEnergyAt_(ts, latest) {
+  const e = energyAt_(ts, hourlyPoints_(ts - 3 * 3600e3));
+  if (e === '' && latest) throw httpError_(400, 'No logger readings around that time, so the starting meter energy cannot be found.');
+  return e;
+}
+
+function expectedNext_(v, ts) {
+  if (v === undefined || v === null || v === '') return '';
+  const n = Number(v);
+  if (!(n > ts)) throw httpError_(400, 'Expected next reading must be after the billing time.');
+  return n;
+}
+
+function energyText_(e) {
+  return e === '' || e == null ? 'none (before logger)' : `${e} kWh`;
 }
 
 function deleteLatestBill_() {

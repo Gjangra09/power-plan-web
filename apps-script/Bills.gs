@@ -16,14 +16,17 @@ function billDocs_() {
   const sh = tab_('BillDocs');
   const n = sh.getLastRow() - 1;
   if (n < 1) return [];
+  const bills = billsSorted_();
   return sh.getRange(2, 1, n, TABS.BillDocs.length).getValues()
     .map((r, i) => ({
-      id: String(r[0]), row: i + 2, cycleStart: r[1] === '' ? null : Number(r[1]),
+      id: String(r[0]), row: i + 2, cycleStart: null,
       periodFrom: isoDay_(r[2]), periodTo: isoDay_(r[3]), fileId: String(r[4]), fileName: String(r[5]),
       fields: JSON.parse(String(r[6] || '{}')), status: String(r[7]),
       uploadedBy: String(r[8]), uploadedAt: r[9] instanceof Date ? r[9].getTime() : null,
     }))
     .filter(d => d.status === 'confirmed')
+    // matched against the billing readings now, so editing or deleting a reading re-links the bill
+    .map(d => Object.assign(d, { cycleStart: matchCycle_(d.fields, bills) }))
     .sort((a, b) => a.periodFrom.localeCompare(b.periodFrom));
 }
 
@@ -82,8 +85,7 @@ function cleanBillFields_(x) {
 }
 
 /** Start (ms) of the billing cycle whose readings match the bill's dates (±1 day), or null. */
-function matchCycle_(f) {
-  const bills = billsSorted_();
+function matchCycle_(f, bills = billsSorted_()) {
   const near = (ts, day) => Math.abs(ts - Date.parse(day + 'T00:00:00+05:30')) <= 1.5 * 86400e3;
   for (let i = 0; i + 1 < bills.length; i++) {
     if (near(bills[i].ts, f.periodFrom) && near(bills[i + 1].ts, f.periodTo)) return bills[i].ts;

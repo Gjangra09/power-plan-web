@@ -165,6 +165,17 @@ export async function mockCall(action, params) {
       return { ok: true, saved: { ts: params.ts, startEnergy: energy, expectedNextTs: params.expectedNextTs || null } };
     }
     case 'deleteLatestBill': bills.pop(); return { ok: true };
+    case 'updateBilling': {
+      const b = bills.find(x => x.ts === params.ts);
+      Object.assign(b, { ts: params.newTs || b.ts, expectedNextTs: params.expectedNextTs || null, note: params.note });
+      bills.sort((x, y) => x.ts - y.ts);
+      return { ok: true, saved: { ts: b.ts, startEnergy: b.startEnergy }, details: 'changed (demo, not saved)' };
+    }
+    case 'deleteBilling': {
+      if (bills.length <= 1) throw Object.assign(new Error('Keep at least one billing: the current cycle starts from it.'), { code: 400 });
+      bills.splice(bills.findIndex(x => x.ts === params.ts), 1);
+      return { ok: true, deleted: params.ts };
+    }
     case 'listUsers': return { ok: true, users: [...users] };
     case 'setPages': {
       const u = users.find(x => x.email === params.email);

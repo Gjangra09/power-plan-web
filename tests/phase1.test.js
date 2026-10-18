@@ -351,3 +351,56 @@ test('G6 health shows problems: stale data, failing update with retries, missing
   assert.equal(h.status, 'bad');
   assert.equal(h.build, null, 'no build stamp in tests');
 });
+
+// ---------- Billing history: edit and delete any entry ----------
+
+test('billing: edit the time (energy looked up again), expected next and note – logged before → after', () => {
+  const b = ready();
+  const before = b.ctx.billsSorted_()[0];
+  const newTs = B1 + 2 * H;
+  const r = post(b, 'admin@example.com', { action: 'updateBilling', ts: B1, newTs, note: 'corrected reading time' });
+  assert.equal(r.ok, true);
+  const after = b.ctx.billsSorted_()[0];
+  assert.equal(after.ts, newTs);
+  assert.equal(after.startEnergy, b.ctx.energyAt_(newTs, b.ctx.hourlyPoints_(0)), 'energy at the new time');
+  assert.notEqual(after.startEnergy, before.startEnergy);
+  assert.equal(after.note, 'corrected reading time');
+  assert.match(r.details, /^time .* → .* \(energy .* kWh → .* kWh\) · note "test" → "corrected reading time"$/);
+  assert.ok(b.ctx.recentActivity_(3).some(a => a.event.startsWith('Edited billing') && a.details === r.details));
+  const c = b.ctx.cycles_()[0];
+  assert.equal(c.start, newTs, 'the stored cycles follow the edit');
+});
+
+test('billing: delete any entry (not just the newest); the cycles either side merge; at least one stays', () => {
+  const b = ready();
+  b.tab('Bills').appendRow([B1 - 10 * 86400e3, 'x', '', '', 'old', 'setup', new Date()]);
+  assert.equal(b.ctx.billsSorted_().length, 3);
+  const r = post(b, 'admin@example.com', { action: 'deleteBilling', ts: B1 });
+  assert.equal(r.ok, true);
+  assert.deepEqual(b.ctx.billsSorted_().map(x => x.ts), [B1 - 10 * 86400e3, B2]);
+  assert.equal(b.ctx.cycles_().filter(c => !c.current).length, 1, 'one merged closed cycle');
+  post(b, 'admin@example.com', { action: 'deleteBilling', ts: B2 });
+  assert.match(post(b, 'admin@example.com', { action: 'deleteBilling', ts: B1 - 10 * 86400e3 }).error, /Keep at least one billing/);
+});
+
+test('billing: duplicates within an hour and future times are refused; an earlier reading without logger data may be added; viewers cannot edit', () => {
+  const b = ready();
+  assert.match(post(b, 'admin@example.com', { action: 'saveBilling', ts: B2 + 20 * 60e3 }).error, /already a billing at/);
+  assert.match(post(b, 'admin@example.com', { action: 'updateBilling', ts: B1, newTs: B2 - 10 * 60e3 }).error, /already a billing at/);
+  assert.match(post(b, 'admin@example.com', { action: 'updateBilling', ts: B1, newTs: Date.now() + 86400e3 }).error, /not in the future/);
+  assert.equal(post(b, 'past@example.com', { action: 'deleteBilling', ts: B1 }).error, 'Admin only');
+  // an earlier reading without logger data may be added (history before the logger)
+  assert.equal(post(b, 'admin@example.com', { action: 'saveBilling', ts: START - 40 * 86400e3, note: 'from an old bill' }).ok, true);
+});
+
+test('billing: an uploaded bill re-links to its cycle after the readings are edited', () => {
+  const b = ready();
+  const day = ms => new Date(ms + 330 * 60e3).toISOString().slice(0, 10);
+  const f = Object.assign({}, REAL[5], { periodFrom: day(B1), periodTo: day(B2) });
+  b.ctx.uploadBill_({ fields: f, file: { base64: PDF } }, { email: 'admin@example.com', role: 'admin' });
+  assert.equal(b.ctx.billDocs_()[0].cycleStart, B1);
+  post(b, 'admin@example.com', { action: 'updateBilling', ts: B1, newTs: B1 + 3 * H });
+  assert.equal(b.ctx.billDocs_()[0].cycleStart, B1 + 3 * H, 'same day, so still the same cycle');
+  post(b, 'admin@example.com', { action: 'deleteBilling', ts: B1 + 3 * H });
+  assert.equal(b.ctx.billDocs_()[0].cycleStart, null, 'its reading is gone, so it is no longer linked');
+});
