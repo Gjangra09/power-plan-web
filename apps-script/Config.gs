@@ -39,14 +39,37 @@ const APP = {
 
   // DHBVN meter-reading dates before this app existed (time unknown, stored as 00:00)
   SEED_BILL_DATES: ['2025-09-25', '2025-11-14', '2026-01-17', '2026-03-28', '2026-05-22', '2026-07-17', '2026-09-18'],
+
+  // Monitoring. The logger often drops out for 1–3 h (about 240 gaps over 3 h in a year), so the
+  // "no data" alert waits this long; change it with a Config row staleAlertHours.
+  STALE_ALERT_HOURS: 3,
+  RETRY_LIMIT: 3,           // a failed update is retried after 2, 4, 8 minutes
+  JOBS_MAX_ROWS: 3000,
+  ERRORS_MAX_ROWS: 1000,
+  ALERTS_MAX_ROWS: 1000,
 };
 
+// Every tab of the app sheet and its columns. Missing tabs and columns are added on first use
+// (tab_ in Summary.gs), so a newer version never needs a manual migration step.
 const TABS = {
-  Hourly: ['Hour', 'LastTsMs', 'Energy', 'Readings', 'AvgPowerW'],
+  Hourly: ['Hour', 'LastTsMs', 'Energy', 'Readings', 'AvgPowerW', 'LoggerRows', 'LastRowTsMs'],
   Bills: ['BillTsMs', 'BillTime', 'StartEnergy', 'ExpectedNextMs', 'Note', 'CreatedBy', 'CreatedAt'],
   Config: ['Key', 'Value'],
-  Users: ['Email', 'Role'],
-  Activity: ['Time', 'Email', 'Name', 'Role', 'Type', 'Event', 'Device'],
+  Users: ['Email', 'Role', 'Pages'],
+  Activity: ['Time', 'Email', 'Name', 'Role', 'Type', 'Event', 'Device', 'Details'],
+  // Tariff in force from EffectiveFromMs until the next version starts (RatesJson = engine tariff)
+  TariffVersions: ['Id', 'Category', 'EffectiveFromMs', 'EffectiveFrom', 'RatesJson', 'Note', 'CreatedBy', 'CreatedAt'],
+  // Admin fixes to logger data, applied when data is read; raw data is never edited
+  Corrections: ['Id', 'Kind', 'FromMs', 'ToMs', 'Value', 'Reason', 'Active', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt'],
+  // Uploaded DHBVN bills and the fields read from them (Phase 1)
+  BillDocs: ['Id', 'BillTsMs', 'PeriodFrom', 'PeriodTo', 'FileId', 'FileName', 'FieldsJson', 'Status', 'UploadedBy', 'UploadedAt', 'ConfirmedBy', 'ConfirmedAt'],
+  // Stored results of closed cycles (Phase 1 cycle slicer)
+  Cycles: ['StartMs', 'EndMs', 'Days', 'Units', 'AvgPerDay', 'Band', 'AppTotal', 'DhbvnTotal', 'CoveragePct', 'BuiltAt'],
+  Prefs: ['Email', 'Key', 'Value', 'UpdatedAt'],
+  Devices: ['DeviceId', 'Name', 'Measures', 'Location', 'Installed', 'Note'],
+  Jobs: ['Started', 'Job', 'Status', 'Ms', 'Rows', 'Message'],
+  Errors: ['Time', 'Where', 'Code', 'Message', 'Email', 'Action'],
+  Alerts: ['Time', 'Key', 'State', 'Message', 'Delivery'],
 };
 
 /** Run from the editor: shows which environment this project is and whether every setting is filled. */
@@ -57,6 +80,8 @@ function checkConfig() {
     Logger.log(`${k}: ${v ? (k === 'ENV' ? v : v.slice(0, 6) + '…') : 'MISSING'}`);
   });
   Logger.log(`APP_SHEET_ID: ${props.getProperty('APP_SHEET_ID') || '(created by setup)'}`);
+  // Optional: alerts go to the same Telegram chat as the ESP's (the token itself is never logged)
+  ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'].forEach(k => Logger.log(`${k}: ${props.getProperty(k) ? 'set' : 'not set (alerts are only written to the Alerts tab)'}`));
   requiredProp_('ENV');
 }
 

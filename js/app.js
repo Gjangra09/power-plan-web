@@ -1,6 +1,8 @@
 // Summary page: current bill cycle, averages, charges and projection.
+// The server calculates the cycle (data.calc); this page only displays it. The same engine runs
+// here only for demo data and older backends.
 import { boot, el, inr, num, dateTime, dateOnly, shortDate, showError } from './ui.js';
-import { cycleSummary, avgCycleDays, DEFAULT_TARIFF } from './billing.js';
+import { cycleSummary, avgCycleDays, normalizeTariff, DEFAULT_TARIFF } from './billing.js';
 
 const DAY = 86400e3;
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -16,15 +18,16 @@ function render(data) {
     return stop(`The last billing time (${dateTime(bill.ts)}) is outside the logged readings, so units since billing cannot be measured. Set a newer billing time on the Admin page.`);
   }
 
-  const tariff = data.tariff || DEFAULT_TARIFF;
-  const typicalDays = Math.round(avgCycleDays(bills.map(b => new Date(b.ts))));
-  const cycleStart = new Date(bill.ts);
-  const cycleEnd = new Date(bill.expectedNextTs || bill.ts + typicalDays * DAY);
-  const s = cycleSummary({
-    cycleStart, cycleEnd, startEnergy: bill.startEnergy, tariff,
+  const typicalDays = data.typicalDays || Math.round(avgCycleDays(bills.map(b => new Date(b.ts))));
+  const s = data.calc ? fromServer(data.calc) : cycleSummary({
+    cycleStart: new Date(bill.ts),
+    cycleEnd: new Date(bill.expectedNextTs || bill.ts + typicalDays * DAY),
+    startEnergy: bill.startEnergy,
+    tariff: normalizeTariff(data.tariff || DEFAULT_TARIFF),
     points: data.points.map(p => ({ ts: new Date(p.ts), energy: p.energy })),
     now: new Date(data.serverTime),
   });
+  const tariff = normalizeTariff(s.tariff || data.tariff);
 
   setupChartDefaults();
   renderHero(s, bill, typicalDays, data.serverTime);
@@ -32,6 +35,13 @@ function render(data) {
   renderLimits(s);
   renderUsage(s);
   renderCharges(s);
+}
+
+/** The server's cycleSummary arrives as JSON: turn its times back into Dates. */
+function fromServer(calc) {
+  return Object.assign({}, calc, {
+    cycleStart: new Date(calc.cycleStart), cycleEnd: new Date(calc.cycleEnd), latestTs: new Date(calc.latestTs),
+  });
 }
 
 // ---------- hero ----------

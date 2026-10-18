@@ -1,5 +1,22 @@
 // Demo backend used when CONFIG.apiUrl is empty or the URL has ?demo.
 // Synthetic numbers only: no real readings are ever committed to this public repo.
+import { cycleSummary, avgCycleDays, DEFAULT_TARIFF } from './billing.js';
+
+// Like the server: the cycle is calculated here and sent as JSON (Dates become strings)
+function summary(me) {
+  const pts = points();
+  const out = { ok: true, me, bills: [...bills], points: pts, tariff: DEFAULT_TARIFF, serverTime: Date.now() };
+  const bill = bills[bills.length - 1];
+  if (bill && bill.startEnergy != null) {
+    out.typicalDays = Math.round(avgCycleDays(bills.map(b => new Date(b.ts))));
+    out.calc = JSON.parse(JSON.stringify(cycleSummary({
+      cycleStart: new Date(bill.ts), startEnergy: bill.startEnergy,
+      cycleEnd: new Date(bill.expectedNextTs || bill.ts + out.typicalDays * DAY),
+      points: pts.map(p => ({ ts: new Date(p.ts), energy: p.energy })), now: new Date(out.serverTime),
+    }), (k, v) => (v === Infinity ? 1e9 : v)));
+  }
+  return out;
+}
 
 const DAY = 86400e3;
 const now = Date.now();
@@ -18,7 +35,11 @@ const activity = [
   { ts: now - 3 * 60e3, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'sign-in', event: 'Signed in', device: 'Chrome on Android' },
   { ts: now - 5 * 3600e3, email: 'family@example.com', name: 'Family Member', role: 'viewer', type: 'view', event: 'Opened Summary', device: 'Safari on iPhone/iPad' },
   { ts: now - 26 * 3600e3, email: 'stranger@example.com', name: 'Someone Else', role: '', type: 'denied', event: 'Not on the users list', device: 'Chrome on Windows' },
-  { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows' },
+  { ts: now - 3 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Added data correction C0', device: 'Edge on Windows', details: 'readings 14 Oct 2026 02:00 – 14 Oct 2026 03:00 ignored · reason: logger glitch after power cut · current cycle 182.4 units → 182.4 units' },
+  { ts: now - 29 * DAY, email: 'you@example.com', name: 'Demo Admin', role: 'admin', type: 'change', event: 'Saved billing (demo)', device: 'Edge on Windows', details: 'start energy 1500 kWh' },
+];
+const corrections = [
+  { id: 'C0', kind: 'exclude', from: now - 3 * DAY - 3600e3, to: now - 3 * DAY, value: 0, reason: 'Logger glitch after power cut (demo)', active: true, createdBy: 'you@example.com' },
 ];
 
 // Hourly snapshots: evening peak, slow overnight, with a busier last week
@@ -46,7 +67,7 @@ export async function mockCall(action, params) {
     case 'logout': return { ok: true };
     case 'listActivity': return { ok: true, activity: activity.filter(a => (!params.email || a.email === params.email) && (!params.type || a.type === params.type)) };
     case 'me': return { ok: true, me };
-    case 'summary': return { ok: true, me, bills: [...bills], points: points(), tariff: null, serverTime: Date.now() };
+    case 'summary': return summary(me);
     case 'saveBilling': {
       const p = points();
       const energy = p.filter(x => x.ts <= params.ts).pop()?.energy ?? null;
@@ -64,6 +85,17 @@ export async function mockCall(action, params) {
       const i = users.findIndex(x => x.Email === params.email);
       if (i >= 0) users.splice(i, 1);
       return { ok: true, users: [...users] };
+    }
+    case 'listCorrections': return { ok: true, corrections: [...corrections] };
+    case 'saveCorrection': {
+      if (!params.reason || params.reason.trim().length < 3) throw Object.assign(new Error('Write a short reason, so the change can be understood later.'), { code: 400 });
+      corrections.push({ id: 'C' + corrections.length, kind: params.kind, from: params.from, to: params.to, value: params.kind === 'adjust' ? params.value : 0, reason: params.reason, active: true, createdBy: 'you@example.com' });
+      return { ok: true, saved: { id: 'C' + (corrections.length - 1) }, corrections: [...corrections] };
+    }
+    case 'setCorrectionActive': {
+      const c = corrections.find(x => x.id === params.id);
+      if (c) c.active = params.active;
+      return { ok: true, id: params.id, active: params.active, corrections: [...corrections] };
     }
     default: throw new Error('Unknown action');
   }

@@ -34,16 +34,19 @@ Tests: `npm test`. The tariff engine reproduces all six real DHBVN bills.
 
 ### 2. Backend (Apps Script)
 1. Go to https://script.google.com and create a **New project** called "Power Plan".
-2. Create one script file for each `.gs` file in `apps-script/` (Config, Summary, Api, ArchiveAndClean) and paste in its contents.
+2. Create one script file for each `.gs` file in `apps-script/` (Config, Engine, Summary, Monitor, Api, ArchiveAndClean) and paste in its contents. `Engine.gs` is generated from `js/billing.js` + `js/quality.js` (`node scripts/build-gs.mjs`); never edit it by hand.
 3. **Project Settings → Show "appsscript.json"**, then paste in `apps-script/appsscript.json`.
 4. **Project Settings → Script Properties**, add: `ENV` = `prod` (or `uat`), `GOOGLE_CLIENT_ID` (from step 1), `SOURCE_ID` and `INVERTER_ID` (the long ID in each logger sheet's URL). The code holds no IDs, so the same files work in every project and nothing secret reaches the public repo. Run `checkConfig` to confirm.
 5. Select `setup` and click **Run**, then approve the permissions with every box ticked. This:
    - creates the `PowerPlan_App` spreadsheet (`PowerPlan_App_UAT` in UAT); you are its admin
    - builds hourly history from the whole logger sheet
    - adds your 7 past DHBVN bill dates
-   - starts the update timer (every 15 min in prod, 30 min in UAT)
+   - starts the update timer (every 15 min in prod, 30 min in UAT) and the hourly health check
 6. **Deploy → New deployment → Web app**: Execute as **Me**, Who has access **Anyone**. Copy the URL ending in `/exec`.
    ("Anyone" only lets the request reach the script. The script still rejects anyone who isn't signed in and listed in Users.)
+
+7. Optional – alerts on Telegram (the same chat the ESP uses): add Script Properties `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then run `sendTestAlert`. Without them, alerts are only written to the Alerts tab.
+8. After every code update run `phase0Check`: it adds any new tabs/columns, makes sure the timers exist, checks the server engine against the 6 DHBVN bills and logs the current cycle.
 
 ### 3. Frontend
 1. In `js/config.js`, set `clientId` and the `/exec` URL under `BACKENDS.prod` (and `BACKENDS.uat`).
@@ -72,25 +75,40 @@ Set PZEM_Data and Pzem_Elec_DayData to **Share → General access → Restricted
 `ArchiveAndClean.gs` moves logger rows older than 60 days to monthly CSVs in Drive and deletes zero-load rows. Run `archiveDryRun` first and check the log. Then run `installArchiveTrigger`, but only once Power BI also reads the archive CSVs. The dashboard is not affected, because its history lives in the Hourly tab.
 
 ## How the numbers are worked out
+The bill is calculated **once, on the server** (`Engine.gs`, generated from `js/billing.js` and `js/quality.js`); the page only shows it. `tests/engine-sync.test.js` fails if the server copy is not the browser code.
+
 - **Units since last bill** = cleaned meter energy now − energy at the billing time. The energy at billing is interpolated between hourly snapshots.
 - **Growing average** = units since the bill ÷ days since the bill. **7-day average** = the last 7 complete days.
 - **Projected bill** = units at the growing average up to the expected next reading (the date set by admin, or the average gap between past bills), priced with the DHBVN rules:
   - band B if the cycle averages more than 3.33 units/day
-  - slab rates per day
+  - slab rates per day; each slab line rounded to the paisa like the bill
+  - fixed charge ₹50/kW/month above 300 units/month (2 kW load)
   - FPPAS 47 p/unit at 200+ units/month
-  - municipal tax 2% of (energy + FPPAS)
+  - municipal tax 2% of (energy + fixed + FPPAS)
   - duty 10 p/unit
+  - payable = arrears + charges + sundry, rounded to the rupee (the paisa go to the next bill's arrears)
+  - all of it checked line by line against 6 real DHBVN bills (`tests/fixtures/dhbvn-bills.json`, amounts only)
+- **Days** are India days wherever the page is opened.
+- **Tariff versions** (TariffVersions tab): a cycle that spans a tariff change is billed part by part, units shared by days.
 - **Cleaning** (same rules as the Power BI model):
   - drops readings where Current = 0 and Power = 0 (load on the inverter)
   - holds small dips in the energy counter
   - carries real counter resets forward
+- **Data quality:** duplicate snapshots are dropped; gaps up to 6 h are spread evenly over the missing hours (totals never change, only which day the units show on); longer gaps are shown as outages. The logger's counter keeps running while it is offline, so a gap never loses units.
+- **Corrections** (Admin → Data corrections): ignore readings in a time range, or add/subtract kWh from a time on. Applied when data is read, never written into the raw data; turning one off restores the exact previous numbers. Logged in Activity with the effect on the current cycle.
+
+## Monitoring
+- Every background run is logged in the **Jobs** tab, server errors in **Errors**.
+- A failed update is retried after 2, 4 and 8 minutes. Only when the retries fail too is an alert sent.
+- The hourly **healthCheck** alerts when no logger data has arrived for 3 h (Config row `staleAlertHours` to change it) or when the app stops taking in data. Each problem sends **one** message, and one "back to normal" message when it clears (**Alerts** tab + Telegram).
 
 ## Files
 | Path | What |
 |---|---|
 | `index.html`, `js/app.js` | Summary page |
 | `admin.html`, `js/admin.js` | Admin page (billing, history, viewers) |
-| `js/billing.js` | Tariff + projection engine (pure, tested) |
+| `js/billing.js`, `js/quality.js` | Bill engine and data-quality rules (pure, tested); copied into `apps-script/Engine.gs` |
 | `js/api.js`, `js/config.js`, `js/mock.js`, `js/ui.js` | Sign-in, API calls, demo data, shared UI |
-| `apps-script/*.gs` | Backend, hourly snapshots, archive |
-| `tests/billing.test.js` | `npm test` |
+| `apps-script/*.gs` | Backend (Api), hourly snapshots (Summary), monitoring (Monitor), generated engine (Engine), archive |
+| `scripts/build-gs.mjs` | Generates `apps-script/Engine.gs` |
+| `tests/` | `npm test`: real-bill reconciliation, engine sync, data quality, backend (fake Apps Script) |

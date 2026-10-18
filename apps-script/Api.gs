@@ -22,17 +22,22 @@ const ACTIONS = {
   saveUser:      { role: 'admin',  fn: saveUser_ },
   removeUser:    { role: 'admin',  fn: removeUser_ },
   listActivity:  { role: 'admin',  fn: listActivity_ },
+  listCorrections:     { role: 'admin', fn: () => ({ corrections: corrections_() }) },
+  saveCorrection:      { role: 'admin', fn: saveCorrection_ },
+  setCorrectionActive: { role: 'admin', fn: setCorrectionActive_ },
 };
 
-// What goes into the Activity tab for each action: [type, event], or null to skip
+// What goes into the Activity tab for each action: [type, event, details (before → after)], or null to skip
 const ACTIVITY = {
   login:            () => ['sign-in', 'Signed in'],
   logout:           () => ['sign-out', 'Signed out'],
   summary:          req => (req.page ? ['view', `Opened ${req.page === 'admin' ? 'Admin' : 'Summary'}`] : null),
-  saveBilling:      (req, r) => ['change', `Saved billing ${fmt_(r.saved.ts)}`],
-  deleteLatestBill: (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`],
-  saveUser:         req => ['change', `Added/updated ${String(req.email).trim().toLowerCase()} as ${req.role === 'admin' ? 'admin' : 'viewer'}`],
-  removeUser:       req => ['change', `Removed ${String(req.email).trim().toLowerCase()}`],
+  saveBilling:      (req, r) => ['change', `Saved billing ${fmt_(r.saved.ts)}`, `start energy ${r.saved.startEnergy} kWh`],
+  deleteLatestBill: (req, r) => ['change', `Deleted billing ${fmt_(r.deleted)}`, r.details],
+  saveUser:         (req, r) => ['change', `Added/updated ${String(req.email).trim().toLowerCase()} as ${req.role === 'admin' ? 'admin' : 'viewer'}`, r.details],
+  removeUser:       (req, r) => ['change', `Removed ${String(req.email).trim().toLowerCase()}`, r.details],
+  saveCorrection:      (req, r) => ['change', `Added data correction ${r.saved.id}`, r.details],
+  setCorrectionActive: (req, r) => ['change', `Turned data correction ${r.id} ${r.active ? 'on' : 'off'}`, r.details],
 };
 
 const SESSION_RENEW_MS = 15 * 86400e3; // renew when less than this is left
@@ -66,7 +71,10 @@ function doPost(e) {
     return json_(out);
   } catch (err) {
     const code = err.code || 500;
-    if (code === 500) console.error(err);
+    if (code === 500) {
+      console.error(err);
+      logError_('api', err, '', req && req.action);
+    }
     return json_({ ok: false, code, error: code === 500 ? 'Server error' : err.message });
   }
 }
@@ -94,19 +102,52 @@ function login_(req, user, who) {
   return Object.assign({ me: user }, issueSession_(who));
 }
 
+/**
+ * The current cycle as the server calculates it (calc): corrections applied, duplicate and
+ * out-of-order snapshots removed, short gaps filled, tariff versions in force. The page only
+ * displays calc; points and tariff are still sent for older pages.
+ */
 function summary_(req, user) {
+  const now = Date.now();
   const bills = billsSorted_();
   const latest = bills[bills.length - 1] || null;
-  const since = latest ? latest.ts - APP.LEAD_HOURS * 3600e3 : Date.now() - 7 * 86400e3;
-  const points = hourlyPoints_(since);
-  const tariff = configValue_('tariff');
-  return {
+  const since = latest ? latest.ts - APP.LEAD_HOURS * 3600e3 : now - 7 * 86400e3;
+  const raw = hourlyPoints_(since);
+  const corrections = corrections_().filter(c => c.active);
+  const kept = Quality.cleanPoints(Quality.applyCorrections(raw, corrections));
+  const points = Quality.fillGaps(kept);
+  const versions = tariffVersions_();
+  const out = {
     me: user,
     bills: bills.map(b => ({ ts: b.ts, startEnergy: b.startEnergy, expectedNextTs: b.expectedNextTs, note: b.note })),
-    points,
-    tariff: tariff ? JSON.parse(tariff) : null,
-    serverTime: Date.now(),
+    points: points.map(p => ({ ts: p.ts, energy: p.energy })),
+    tariff: versions.filter(v => v.from <= now).pop().tariff,
+    serverTime: now,
   };
+  if (latest && latest.startEnergy != null) {
+    const typicalDays = Math.round(Billing.avgCycleDays(bills.map(b => new Date(b.ts))));
+    out.typicalDays = typicalDays;
+    out.calc = cycleCalc_(latest, points, corrections, versions, now, typicalDays);
+    const gaps = Quality.findGaps(kept.filter(p => p.ts >= latest.ts));
+    out.quality = Object.assign(Quality.coverage(raw, latest.ts, now), {
+      filledGaps: gaps.filter(g => g.kind === 'filled').length,
+      outages: gaps.filter(g => g.kind === 'outage').length,
+      corrections: corrections.length,
+    });
+  }
+  return out;
+}
+
+/** cycleSummary for the cycle that starts at bill, its start energy corrected like the readings. */
+function cycleCalc_(bill, points, corrections, versions, now, typicalDays) {
+  const start = Quality.applyCorrections([{ ts: bill.ts, energy: bill.startEnergy }], corrections.filter(c => c.kind === 'adjust'))[0].energy;
+  return Billing.cycleSummary({
+    cycleStart: new Date(bill.ts), startEnergy: start,
+    cycleEnd: new Date(bill.expectedNextTs || bill.ts + typicalDays * 86400e3),
+    points: points.map(p => ({ ts: new Date(p.ts), energy: p.energy })),
+    now: new Date(now),
+    tariffs: versions.map(v => ({ from: v.from, tariff: v.tariff })),
+  });
 }
 
 function saveBilling_(req, user) {
@@ -122,18 +163,18 @@ function saveBilling_(req, user) {
   if (startEnergy === '') throw httpError_(400, 'No logger readings around that time, so the starting meter energy cannot be found.');
   const note = String(req.note || '').slice(0, 200);
   withLock_(() => {
-    appSheet_().getSheetByName('Bills').appendRow([ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date()]);
+    tab_('Bills').appendRow([ts, fmt_(ts), startEnergy, expectedNext, note, user.email, new Date()]);
   });
   return { saved: { ts, startEnergy, expectedNextTs: expectedNext || null } };
 }
 
 function deleteLatestBill_() {
-  const sh = appSheet_().getSheetByName('Bills');
+  const sh = tab_('Bills');
   const bills = billsSorted_();
   if (bills.length <= 1) throw httpError_(400, 'Keep at least one bill.');
   const latest = bills[bills.length - 1];
   withLock_(() => sh.deleteRow(latest.row));
-  return { deleted: latest.ts };
+  return { deleted: latest.ts, details: `was: start energy ${latest.startEnergy} kWh, note "${latest.note || ''}"` };
 }
 
 function saveUser_(req, user) {
@@ -141,22 +182,96 @@ function saveUser_(req, user) {
   const role = req.role === 'admin' ? 'admin' : 'viewer';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw httpError_(400, 'Enter a valid email address.');
   if (email === user.email && role !== 'admin') throw httpError_(400, 'You cannot remove your own admin role.');
-  const sh = appSheet_().getSheetByName('Users');
+  const sh = tab_('Users');
   const rows = sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
   const i = rows.findIndex((r, k) => k > 0 && String(r[0]).toLowerCase() === email);
+  const before = i > 0 ? String(rows[i][1]) : 'no access';
   if (i > 0) sh.getRange(i + 1, 2).setValue(role);
-  else sh.appendRow([email, role]);
-  return { users: usersWithLastSeen_() };
+  else sh.appendRow([email, role, '']);
+  return { users: usersWithLastSeen_(), details: `${before} → ${role}` };
 }
 
 function removeUser_(req, user) {
   const email = String(req.email || '').trim().toLowerCase();
   if (email === user.email) throw httpError_(400, 'You cannot remove yourself.');
-  const sh = appSheet_().getSheetByName('Users');
+  const sh = tab_('Users');
   const rows = sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
   const i = rows.findIndex((r, k) => k > 0 && String(r[0]).toLowerCase() === email);
   if (i > 0) sh.deleteRow(i + 1);
-  return { users: usersWithLastSeen_() };
+  return { users: usersWithLastSeen_(), details: `${i > 0 ? rows[i][1] : 'not listed'} → no access` };
+}
+
+// ---------- data corrections ----------
+
+/** Corrections [{id, kind, from, to, value, reason, active, ...}], oldest first. */
+function corrections_() {
+  return readTab_('Corrections').map(r => ({
+    id: String(r.Id), kind: String(r.Kind), from: Number(r.FromMs), to: r.ToMs === '' ? null : Number(r.ToMs),
+    value: r.Value === '' ? 0 : Number(r.Value), reason: String(r.Reason),
+    active: r.Active === true || String(r.Active).toUpperCase() === 'TRUE',
+    createdBy: String(r.CreatedBy), createdAt: r.CreatedAt instanceof Date ? r.CreatedAt.getTime() : null,
+  }));
+}
+
+/** Adds a correction; the activity log shows what it did to the current cycle (before → after). */
+function saveCorrection_(req, user) {
+  const kind = req.kind === 'adjust' ? 'adjust' : req.kind === 'exclude' ? 'exclude' : '';
+  const from = Number(req.from), to = req.to == null || req.to === '' ? null : Number(req.to);
+  const value = kind === 'adjust' ? Number(req.value) : 0;
+  const reason = String(req.reason || '').trim().slice(0, 200);
+  if (!kind) throw httpError_(400, 'Choose what the correction does: ignore readings or adjust energy.');
+  if (!Number.isFinite(from) || from <= 0) throw httpError_(400, 'Enter when the correction starts.');
+  if (to !== null && !(to > from)) throw httpError_(400, 'The end must be after the start.');
+  if (kind === 'exclude' && to === null) throw httpError_(400, 'Ignoring readings needs an end time.');
+  if (kind === 'adjust' && !(Number.isFinite(value) && value !== 0 && Math.abs(value) < 100000)) throw httpError_(400, 'Enter the energy change in kWh (not zero).');
+  if (reason.length < 3) throw httpError_(400, 'Write a short reason, so the change can be understood later.');
+
+  const before = currentUnits_();
+  const id = 'C' + Utilities.getUuid().slice(0, 8);
+  withLock_(() => tab_('Corrections').appendRow([id, kind, from, to === null ? '' : to, kind === 'adjust' ? value : '', reason, true, user.email, new Date(), '', '']));
+  const after = currentUnits_();
+  const what = kind === 'adjust'
+    ? `${value > 0 ? '+' : ''}${value} kWh from ${fmt_(from)}${to ? ' to ' + fmt_(to) : ''}`
+    : `readings ${fmt_(from)} – ${fmt_(to)} ignored`;
+  return { saved: { id }, corrections: corrections_(), details: `${what} · reason: ${reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+}
+
+function setCorrectionActive_(req, user) {
+  const id = String(req.id || '');
+  const active = req.active === true;
+  const sh = tab_('Corrections');
+  const ids = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0])) : [];
+  const i = ids.indexOf(id);
+  if (i < 0) throw httpError_(404, 'That correction does not exist.');
+  const before = currentUnits_();
+  withLock_(() => {
+    sh.getRange(i + 2, 7).setValue(active);
+    sh.getRange(i + 2, 10, 1, 2).setValues([[user.email, new Date()]]);
+  });
+  const after = currentUnits_();
+  return { id, active, corrections: corrections_(), details: `${active ? 'off → on' : 'on → off'} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+}
+
+/** Units so far in the current cycle (for before → after in the activity log), or null. */
+function currentUnits_() {
+  const s = summary_({}, {});
+  return s.calc ? s.calc.unitsSoFar : null;
+}
+
+function unitsText_(u) {
+  return u === null ? 'n/a' : `${round_(u, 2)} units`;
+}
+
+// ---------- tariff versions ----------
+
+/** Tariff versions [{id, from, tariff}], oldest first; the first one applies from the start. */
+function tariffVersions_() {
+  if (tab_('TariffVersions').getLastRow() < 2) seedDefaults_();
+  const rows = readTab_('TariffVersions')
+    .map(r => ({ id: String(r.Id), from: Number(r.EffectiveFromMs) || 0, tariff: Billing.normalizeTariff(JSON.parse(String(r.RatesJson))) }))
+    .sort((a, b) => a.from - b.from);
+  rows[0].from = -Infinity;
+  return rows;
 }
 
 /** Newest activity first, optionally for one email and/or one type. */
@@ -248,7 +363,7 @@ function roleOf_(email) {
 function logActivity_(user, req, entry) {
   try {
     const sh = activitySheet_();
-    sh.appendRow([new Date(), user.email, user.name || '', user.role || '', entry[0], entry[1], String(req.client || '').slice(0, 60)]);
+    sh.appendRow([new Date(), user.email, user.name || '', user.role || '', entry[0], entry[1], String(req.client || '').slice(0, 60), String(entry[2] || '').slice(0, 500)]);
     if (sh.getLastRow() > APP.ACTIVITY_MAX_ROWS + 500) sh.deleteRows(2, 500);
   } catch (err) {
     console.error('Activity log failed: ' + err);
@@ -264,26 +379,19 @@ function recentActivity_(n) {
     .map(r => ({
       ts: r[0] instanceof Date ? r[0].getTime() : Number(r[0]),
       email: String(r[1]).toLowerCase(), name: String(r[2]), role: String(r[3]),
-      type: String(r[4]), event: String(r[5]), device: String(r[6]),
+      type: String(r[4]), event: String(r[5]), device: String(r[6]), details: String(r[7] || ''),
     }))
     .reverse();
 }
 
 function activitySheet_() {
-  const ss = appSheet_();
-  let sh = ss.getSheetByName('Activity');
-  if (!sh) {
-    sh = ss.insertSheet('Activity');
-    sh.appendRow(TABS.Activity);
-    sh.setFrozenRows(1);
-  }
-  return sh;
+  return tab_('Activity');
 }
 
 // ---------- helpers ----------
 
 function billsSorted_() {
-  const sh = appSheet_().getSheetByName('Bills');
+  const sh = tab_('Bills');
   const n = sh.getLastRow() - 1;
   if (n < 1) return [];
   return sh.getRange(2, 1, n, TABS.Bills.length).getValues()
@@ -298,7 +406,7 @@ function billsSorted_() {
 }
 
 function readTab_(name) {
-  const sh = appSheet_().getSheetByName(name);
+  const sh = tab_(name);
   const values = sh.getDataRange().getValues();
   const head = values.shift();
   return values.filter(r => r[0] !== '').map(r => Object.fromEntries(head.map((h, i) => [h, r[i]])));
@@ -315,6 +423,8 @@ function httpError_(code, message) {
   return e;
 }
 
+// JSON has no Infinity (the last slab has no upper limit): send a large number instead of null
 function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  const text = JSON.stringify(obj, (k, v) => (v === Infinity ? 1e9 : v === -Infinity ? -1e9 : v));
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
 }

@@ -37,7 +37,7 @@ jobs:
         working-directory: uat
       - name: Assemble site
         run: |
-          copy() { rsync -a --exclude '.git' --exclude '.github' --exclude 'apps-script' --exclude 'tests' --exclude 'package.json' --exclude '.gitignore' --exclude 'README.md' "$1"/ "$2"/; }
+          copy() { rsync -a --exclude '.git' --exclude '.github' --exclude 'apps-script' --exclude 'tests' --exclude 'scripts' --exclude 'package.json' --exclude '.gitignore' --exclude 'README.md' "$1"/ "$2"/; }
           mkdir -p _site/uat
           copy prod _site
           copy uat _site/uat
