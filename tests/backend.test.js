@@ -144,32 +144,81 @@ test('D5 a job failing past its retries sends exactly one alert, and one when it
   assert.deepEqual(b.tab('Alerts').rows.slice(1).map(r => [r[1], r[2], r[4]]), [['job:updateHourly', 'open', 'sent'], ['job:updateHourly', 'closed', 'sent']]);
 });
 
-test('D5 logger data stopping sends one alert however often the check runs, and one recovery', () => {
+// watchData is called with the time of each check (Google's clock); readings arrive as rows
+const MIN = 60e3;
+const T = Date.now();
+const newReading = (b, ts) => b.source.rows.push(loggerRows(ts, 1 / 60, { energy0: DATA.energyEnd }).rows[0]);
+
+test('D5 data stopping: alert after 2 quiet minutes, a reminder every 30 min, one message when back', () => {
   const b = ready();
-  b.source.rows.length = b.source.rows.length - 4 * 60;   // last reading now 4.5 h ago (> 3 h)
-  b.ctx.healthCheck(); b.ctx.healthCheck(); b.ctx.healthCheck();
+  const at = m => b.ctx.watchData_(T + m * MIN);
+  at(0); at(1);
+  assert.equal(b.sent.length, 0, 'quiet for 1 min: nothing');
+  at(2);
   assert.equal(b.sent.length, 1);
-  assert.match(b.sent[0].text, /No new logger data for 4\.\d h/);
-  b.source.rows.push(...loggerRows(END, 0.4, { energy0: DATA.energyEnd }).rows);
-  b.ctx.healthCheck(); b.ctx.healthCheck();
-  assert.equal(b.sent.length, 2);
-  assert.match(b.sent[1].text, /Back to normal: logger data is arriving again/);
+  assert.match(b.sent[0].text, /⚠️ No logger data for 2 min \(last reading /);
+  at(3); at(10); at(31);
+  assert.equal(b.sent.length, 1, 'no repeats before 30 min');
+  at(32);
+  assert.match(b.sent[1].text, /⏳ Still no logger data: 32 min without new readings/);
+  at(61); at(62);
+  assert.equal(b.sent.length, 3, 'second reminder 30 min after the first');
+  for (const m of [63, 64, 65]) { newReading(b, T + m * MIN); at(m); }   // data back, every minute
+  assert.equal(b.sent.length, 4);
+  assert.match(b.sent[3].text, /✅ Logger data is back after 1 h \d\d min without readings/);
+  assert.deepEqual(b.tab('Alerts').rows.slice(1).map(r => r[2]), ['open', 'reminder', 'reminder', 'closed']);
 });
 
-test('D5 the alert threshold follows the Config row staleAlertHours', () => {
+test('D5 data stopping again after it came back is a new alert', () => {
   const b = ready();
-  b.tab('Config').appendRow(['staleAlertHours', 6]);
-  b.source.rows.length = b.source.rows.length - 4 * 60;   // 4.5 h: under 6 h
-  b.ctx.healthCheck();
+  [0, 2].forEach(m => b.ctx.watchData_(T + m * MIN));
+  newReading(b, T + 3 * MIN);
+  [3, 4, 5].forEach(m => b.ctx.watchData_(T + m * MIN));
+  assert.deepEqual(b.tab('Alerts').rows.slice(1).map(r => r[2]), ['open', 'closed', 'open']);
+});
+
+test('D5 a reading every minute never alerts, even with the ESP clock 10 minutes behind', () => {
+  const b = ready();
+  for (let m = 0; m < 20; m++) { newReading(b, T + (m - 10) * MIN); b.ctx.watchData_(T + m * MIN); }
   assert.equal(b.sent.length, 0);
+});
+
+test('D5 the alert wait and reminder interval follow the Config rows', () => {
+  const b = ready();
+  b.tab('Config').appendRow(['staleAlertMinutes', 10]);
+  b.tab('Config').appendRow(['staleRemindMinutes', 60]);
+  [0, 5, 9].forEach(m => b.ctx.watchData_(T + m * MIN));
+  assert.equal(b.sent.length, 0);
+  [10, 40, 69].forEach(m => b.ctx.watchData_(T + m * MIN));
+  assert.equal(b.sent.length, 1);
+  b.ctx.watchData_(T + 70 * MIN);
+  assert.equal(b.sent.length, 2);
 });
 
 test('D5 without Telegram set up, alerts are still recorded in the Alerts tab', () => {
   const b = ready({ telegram: false });
+  b.ctx.watchData_(T); b.ctx.watchData_(T + 5 * MIN);
+  assert.equal(b.sent.length, 0);
+  assert.equal(b.tab('Alerts').rows[1][4], 'not set up');
+});
+
+test('D5 quiet checks write nothing to the sheet; the hourly health check no longer sends data alerts', () => {
+  const b = ready();
+  const rows = name => b.tab(name).rows.length;
+  const before = [rows('Jobs'), rows('Alerts'), rows('Errors')];
+  for (let m = 0; m < 2; m++) { newReading(b, T + m * MIN); b.ctx.watchData_(T + m * MIN); }
+  assert.deepEqual([rows('Jobs'), rows('Alerts'), rows('Errors')], before);
   b.source.rows.length = b.source.rows.length - 4 * 60;
   b.ctx.healthCheck();
   assert.equal(b.sent.length, 0);
-  assert.equal(b.tab('Alerts').rows[1][4], 'not set up');
+});
+
+test('D5 the watch trigger runs every 5 min in UAT and every minute in prod', () => {
+  for (const [env, every] of [['uat', 300], ['prod', 60]]) {
+    const b = loadBackend({ env });
+    b.ctx.installTriggers_();
+    assert.equal(b.triggers.find(t => t.handler === 'watchData').every, every);
+  }
 });
 
 test('D5 API errors are logged with the action; refused requests are not errors', () => {

@@ -60,18 +60,64 @@ function clearRetry_(name) {
 }
 
 /**
- * Hourly check (trigger): is logger data still arriving, is the Hourly tab keeping up,
- * any duplicate hour rows? Opens/closes alerts; each alert is sent once.
+ * Watch trigger (every APP.WATCH_MINUTES): has a new logger reading arrived? When none has for
+ * staleAlertMinutes (Google's clock), one alert; a reminder every staleRemindMinutes while it
+ * lasts; one message when data is back. Quiet runs write nothing to the sheet.
+ */
+function watchData() {
+  watchData_(Date.now());
+}
+
+function watchData_(now) {
+  const lock = LockService.getUserLock();
+  if (!lock.tryLock(5 * 1000)) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const w = JSON.parse(props.getProperty('WATCH') || '{}');
+    const last = lastLoggerTs_();
+    if (last && last !== w.lastTs) {                 // a new reading arrived since the last check
+      if (w.openSince) {
+        notify_('stale', 'closed', `✅ Logger data is back after ${duration_(last - w.downFrom)} without readings (${fmt_(w.downFrom)} → ${fmt_(last)}).`);
+        delete w.openSince; delete w.sentAt; delete w.downFrom;
+      }
+      w.lastTs = last;
+      w.seenAt = now;
+    }
+    if (!w.seenAt) w.seenAt = now;
+    const quiet = now - w.seenAt;
+    const limit = configNumber_('staleAlertMinutes', APP.STALE_ALERT_MINUTES) * 60e3;
+    const remind = configNumber_('staleRemindMinutes', APP.STALE_REMIND_MINUTES) * 60e3;
+    if (quiet >= limit && !w.openSince) {
+      w.openSince = now; w.sentAt = now; w.downFrom = w.lastTs || w.seenAt;
+      notify_('stale', 'open', `⚠️ No logger data for ${duration_(quiet)} (last reading ${w.lastTs ? fmt_(w.lastTs) : 'none'}). The ESP may be offline or without Wi-Fi; the meter still counts the units meanwhile.`);
+    } else if (w.openSince && now - w.sentAt >= remind) {
+      w.sentAt = now;
+      notify_('stale', 'reminder', `⏳ Still no logger data: ${duration_(quiet)} without new readings (last reading ${w.lastTs ? fmt_(w.lastTs) : 'none'}).`);
+    }
+    props.setProperty('WATCH', JSON.stringify(w));
+  } catch (err) {
+    logError_('watchData', err);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** "7 min", "2 h 05 min". */
+function duration_(ms) {
+  const min = Math.max(0, Math.round(ms / 60e3));
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+}
+
+/**
+ * Hourly check (trigger): is the Hourly tab keeping up with the logger, any duplicate hour rows?
+ * (Data stopping is watched every minute by watchData.)
  */
 function healthCheck() {
   return runJob_('healthCheck', () => {
     const now = Date.now();
     const lastLogger = lastLoggerTs_();
-    const limitH = configNumber_('staleAlertHours', APP.STALE_ALERT_HOURS);
     const ageH = lastLogger ? (now - lastLogger) / HOUR_MS : Infinity;
-    setAlert_('stale', ageH > limitH, lastLogger
-      ? `No new logger data for ${ageH.toFixed(1)} h (last reading ${fmt_(lastLogger)}). The ESP may be offline or without Wi-Fi; units used meanwhile are still counted by the meter.`
-      : 'The logger sheet has no readable rows.');
+    dropLegacyAlert_('stale');
 
     // Data arrives but the Hourly tab is behind: the update job is not doing its work
     const pts = tab_('Hourly').getLastRow() > 1 ? hourlyPoints_(now - 3 * 86400e3) : [];
@@ -137,6 +183,13 @@ function repairHourly_() {
 
 // ---------- alerts ----------
 
+/** Forgets an alert kept by an older version (no message): 'stale' moved from healthCheck to watchData. */
+function dropLegacyAlert_(key) {
+  const props = PropertiesService.getScriptProperties();
+  const all = JSON.parse(props.getProperty('ALERT_STATE') || '{}');
+  if (all[key]) { delete all[key]; props.setProperty('ALERT_STATE', JSON.stringify(all)); }
+}
+
 /**
  * Opens (open = true) or closes an alert. Sends one message when it opens and one when it
  * closes, however often the check runs in between.
@@ -163,7 +216,7 @@ function setAlert_(key, open, message) {
   }
 }
 
-const ALERT_NAMES = { stale: 'logger data is arriving again', lag: 'the app is taking in logger data again', job: 'the background job works again' };
+const ALERT_NAMES = { lag: 'the app is taking in logger data again', job: 'the background job works again' };
 
 /** Writes the alert to the Alerts tab and sends it to Telegram when set up. Never throws. */
 function notify_(key, state, text) {
@@ -268,5 +321,5 @@ function phase0Check() {
   }
   const p = PropertiesService.getScriptProperties();
   Logger.log(`Telegram: ${p.getProperty('TELEGRAM_BOT_TOKEN') && p.getProperty('TELEGRAM_CHAT_ID') ? 'set up (run sendTestAlert to try it)' : 'not set up – alerts only go to the Alerts tab'}`);
-  Logger.log(`Stale-data alert after ${configNumber_('staleAlertHours', APP.STALE_ALERT_HOURS)} h without logger data.`);
+  Logger.log(`Data-stopped alert: after ${configNumber_('staleAlertMinutes', APP.STALE_ALERT_MINUTES)} min without a new reading, reminder every ${configNumber_('staleRemindMinutes', APP.STALE_REMIND_MINUTES)} min, checked every ${APP.WATCH_MINUTES} min.`);
 }

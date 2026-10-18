@@ -112,7 +112,9 @@ The bill is calculated **once, on the server** (`Engine.gs`, generated from `js/
 ## Monitoring
 - Every background run is logged in the **Jobs** tab, server errors in **Errors**.
 - A failed update is retried after 2, 4 and 8 minutes. Only when the retries fail too is an alert sent.
-- The hourly **healthCheck** alerts when no logger data has arrived for 3 h (Config row `staleAlertHours` to change it) or when the app stops taking in data. Each problem sends **one** message, and one "back to normal" message when it clears (**Alerts** tab + Telegram).
+- **watchData** (every minute in prod, every 5 min in UAT) alerts when no new logger reading has arrived for 2 minutes (measured by Google's clock), reminds every 30 minutes while it lasts, and sends one message when data is back. Change with Config rows `staleAlertMinutes` / `staleRemindMinutes`. Quiet checks write nothing.
+- The hourly **healthCheck** alerts when the app stops taking in data although the logger sends, and merges duplicate hour rows. Each such problem sends **one** message, and one "back to normal" message when it clears.
+- Everything sent is also written to the **Alerts** tab (and Telegram, when set up).
 
 ## Files
 | Path | What |

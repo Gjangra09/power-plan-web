@@ -40,9 +40,15 @@ const APP = {
   // DHBVN meter-reading dates before this app existed (time unknown, stored as 00:00)
   SEED_BILL_DATES: ['2025-09-25', '2025-11-14', '2026-01-17', '2026-03-28', '2026-05-22', '2026-07-17', '2026-09-18'],
 
-  // Monitoring. The logger often drops out for 1–3 h (about 240 gaps over 3 h in a year), so the
-  // "no data" alert waits this long; change it with a Config row staleAlertHours.
-  STALE_ALERT_HOURS: 3,
+  // "Logger data stopped" alert: sent when no new reading has arrived for this many minutes
+  // (Google's clock, so a wrong ESP clock doesn't matter), then a reminder every
+  // STALE_REMIND_MINUTES until data is back. Change them with Config rows staleAlertMinutes /
+  // staleRemindMinutes. On last year's data 2 min ≈ 8 alerts + 12 reminders a day.
+  STALE_ALERT_MINUTES: 2,
+  STALE_REMIND_MINUTES: 30,
+  // How often watchData runs. Prod and UAT share the account's 90 min/day of trigger time, so
+  // only prod checks every minute.
+  get WATCH_MINUTES() { return this.ENV === 'prod' ? 1 : 5; },
   RETRY_LIMIT: 3,           // a failed update is retried after 2, 4, 8 minutes
   JOBS_MAX_ROWS: 3000,
   ERRORS_MAX_ROWS: 1000,

@@ -64,12 +64,14 @@ function continueSetup() {
   Logger.log(`Setup done (${APP.ENV}). App sheet: ${appSheet_().getUrl()}`);
 }
 
-/** The regular jobs: data update every APP.UPDATE_MINUTES and the hourly health check. Safe to run again. */
+/** The regular jobs: data update, hourly health check, data-stopped watch. Safe to run again. */
 function installTriggers_() {
   deleteTriggers_('updateHourly');
   ScriptApp.newTrigger('updateHourly').timeBased().everyMinutes(APP.UPDATE_MINUTES).create();
   deleteTriggers_('healthCheck');
   ScriptApp.newTrigger('healthCheck').timeBased().everyHours(1).create();
+  deleteTriggers_('watchData');
+  ScriptApp.newTrigger('watchData').timeBased().everyMinutes(APP.WATCH_MINUTES).create();
 }
 
 /** Default rows for new tabs: the tariff in force today and the logger. Never overwrites. */
