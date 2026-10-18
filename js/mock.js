@@ -211,6 +211,11 @@ export async function mockCall(action, params) {
       corrections.push({ id: 'C' + corrections.length, kind: params.kind, from: params.from, to: params.to, value: params.kind === 'adjust' ? params.value : 0, reason: params.reason, active: true, createdBy: 'you@example.com' });
       return { ok: true, saved: { id: 'C' + (corrections.length - 1) }, corrections: [...corrections] };
     }
+    case 'updateCorrection': {
+      const c = corrections.find(x => x.id === params.id);
+      Object.assign(c, { from: params.from, to: params.to, value: params.value, reason: params.reason });
+      return { ok: true, id: c.id, corrections: [...corrections], details: 'changed (demo, not saved)' };
+    }
     case 'setCorrectionActive': {
       const c = corrections.find(x => x.id === params.id);
       if (c) c.active = params.active;

@@ -387,8 +387,42 @@ function renderCorrections(list) {
       el('td', {}, c.reason),
       el('td', {}, c.createdBy),
       el('td', {}, el('span', { class: `tag ${c.active ? 'tag--change' : 'tag--sign-out'}` }, c.active ? 'On' : 'Off')),
-      el('td', {}, el('button', { class: 'btn btn--ghost', onclick: () => toggleCorrection(c) }, c.active ? 'Turn off' : 'Turn on')),
+      el('td', { class: 'row-actions' },
+        el('button', { class: 'btn btn--small', type: 'button', onclick: e => e.target.closest('tr').replaceWith(correctionEditor(c)) }, 'Edit'),
+        el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: () => toggleCorrection(c) }, c.active ? 'Turn off' : 'Turn on')),
     )));
+}
+
+/** The correction row as a small form: From, To, kWh (add/subtract only) and reason. */
+function correctionEditor(c) {
+  const adjust = c.kind === 'adjust';
+  const from = el('input', { type: 'datetime-local', value: toLocalInput(new Date(c.from)), required: 'required' });
+  const to = el('input', { type: 'datetime-local', value: c.to ? toLocalInput(new Date(c.to)) : '' });
+  const value = el('input', { type: 'number', step: '0.001', value: String(c.value), required: 'required' });
+  const reason = el('input', { type: 'text', maxlength: '200', value: c.reason });
+  const msg = document.getElementById('corrMsg');
+  const save = async () => {
+    try {
+      const r = await call('updateCorrection', {
+        id: c.id, from: new Date(from.value).getTime(), to: to.value ? new Date(to.value).getTime() : null,
+        value: adjust ? Number(value.value) : 0, reason: reason.value,
+      });
+      renderCorrections(r.corrections);
+      setMsg(msg, `Saved: ${r.details}.`, true);
+      loadActivity();
+    } catch (err) { setMsg(msg, err.message, false); }
+  };
+  // One cell across the whole row, so the date fields have room
+  return el('tr', { class: 'editing' }, el('td', { colspan: '7' },
+    el('p', { class: 'muted-sm' }, `Editing ${adjust ? 'add / subtract units' : 'ignore readings'} · ${c.id} · the effect per bill cycle updates after saving`),
+    el('div', { class: 'edit-grid' },
+      adjust ? el('label', {}, 'kWh (negative to subtract)', value) : '',
+      el('label', {}, 'From', from),
+      el('label', {}, adjust ? 'To (empty = all at From)' : 'To', to),
+      el('label', { class: 'edit-grid__wide' }, 'Reason', reason),
+      el('div', { class: 'row' },
+        el('button', { class: 'btn btn--small', type: 'button', onclick: save }, 'Save'),
+        el('button', { class: 'btn btn--ghost btn--small', type: 'button', onclick: loadCorrections }, 'Cancel')))));
 }
 
 async function toggleCorrection(c) {

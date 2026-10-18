@@ -425,3 +425,20 @@ test('a correction spread over a meter reading is split between the two cycles, 
   assert.ok(Math.abs(cmp.correctionsKwh + 1.5) < 1e-9);
   assert.equal(cmp.meterFactor, 1.02);
 });
+
+test('a data correction can be edited: same checks, effect follows, logged before → after; its kind stays', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  const id = b.ctx.saveCorrection_({ kind: 'adjust', from: B2 - 6 * H, to: B2 + 18 * H, value: -6, reason: 'test glitch' }, admin).saved.id;
+  // make it a one-off at a moment inside the closed cycle: all −6 lands there
+  const r = post(b, 'admin@example.com', { action: 'updateCorrection', id, from: B2 - 6 * H, to: null, value: -6, reason: 'one-off glitch', kind: 'exclude' });
+  assert.equal(r.ok, true);
+  const c = r.corrections.find(x => x.id === id);
+  assert.equal(c.kind, 'adjust', 'kind cannot be changed by an edit');
+  assert.deepEqual(c.effects.map(e => [e.current, Math.round(e.kwh * 1000) / 1000]), [[false, -6]]);
+  assert.match(r.details, /^-6 kWh used .* \(spread evenly\), counted from then on → -6 kWh at .*, counted from then on · reason "test glitch" → "one-off glitch" · current cycle/);
+  assert.ok(b.ctx.recentActivity_(3).some(a => a.event === 'Edited data correction ' + id));
+  assert.match(post(b, 'admin@example.com', { action: 'updateCorrection', id, from: B2, to: B2 - H, value: -6, reason: 'x y z' }).error, /end must be after/);
+  assert.match(post(b, 'admin@example.com', { action: 'updateCorrection', id: 'nope', from: B2, value: 1, reason: 'x y z' }).error, /does not exist/);
+  assert.equal(post(b, 'past@example.com', { action: 'updateCorrection', id, from: B2, value: 1, reason: 'x y z' }).error, 'Admin only');
+});

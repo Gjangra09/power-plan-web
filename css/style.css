@@ -368,6 +368,14 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
 
 .profile__version { font-variant-numeric: tabular-nums; word-break: break-word; }
 
+/* Inline edit form inside a table row */
+tr.editing td { background: var(--surface-2); }
+/* a set width: inside a table cell, 100%-wide fields would otherwise keep widening the table */
+.edit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem 1rem; align-items: end; margin-top: 0.4rem; width: min(1000px, calc(100vw - 120px)); }
+tr.editing td { white-space: normal; }
+.edit-grid label { display: grid; gap: 0.3rem; font-size: 0.82rem; color: var(--text-muted); white-space: normal; }
+.edit-grid input { width: 100%; }
+
 /* Service health page */
 .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .hcheck { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; }

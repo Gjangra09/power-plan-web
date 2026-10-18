@@ -40,6 +40,7 @@ const ACTIONS = {
   listCorrections:     { role: 'admin', fn: () => ({ corrections: correctionsWithEffects_() }) },
   saveCorrection:      { role: 'admin', fn: 'saveCorrection_' },
   setCorrectionActive: { role: 'admin', fn: 'setCorrectionActive_' },
+  updateCorrection:    { role: 'admin', fn: 'updateCorrection_' },
   getAlertSettings:    { role: 'admin', fn: 'alertSettings_' },
   saveAlertSettings:   { role: 'admin', fn: 'saveAlertSettings_' },
   getTelegram:         { role: 'admin', fn: 'telegramStatus_' },
@@ -71,6 +72,7 @@ const ACTIVITY = {
   removeUser:       (req, r) => ['change', `Removed ${String(req.email).trim().toLowerCase()}`, r.details],
   saveCorrection:      (req, r) => ['change', `Added data correction ${r.saved.id}`, r.details],
   setCorrectionActive: (req, r) => ['change', `Turned data correction ${r.id} ${r.active ? 'on' : 'off'}`, r.details],
+  updateCorrection:    (req, r) => ['change', `Edited data correction ${r.id}`, r.details],
   saveAlertSettings:   (req, r) => ['change', 'Changed alert settings', r.details],
   saveTelegram:        (req, r) => ['change', 'Changed Telegram alerts', r.details],
   removeTelegram:      (req, r) => ['change', 'Removed Telegram alerts', r.details],
@@ -396,6 +398,40 @@ function correctionsWithEffects_() {
 
 /** Adds a correction; the activity log shows what it did to the current cycle (before → after). */
 function saveCorrection_(req, user) {
+  const c = checkCorrection_(req);
+  const before = currentUnits_();
+  const id = 'C' + Utilities.getUuid().slice(0, 8);
+  withLock_(() => addRow_(tab_('Corrections'), [id, c.kind, c.from, c.to === null ? '' : c.to, c.kind === 'adjust' ? c.value : '', c.reason, true, user.email, new Date(), '', '']));
+  const after = currentUnits_();
+  return { saved: { id }, corrections: correctionsWithEffects_(), details: `${correctionText_(c)} · reason: ${c.reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+}
+
+/** Changes a correction's period, kWh or reason (its kind stays). Logged before → after. */
+function updateCorrection_(req, user) {
+  const id = String(req.id || '');
+  const old = corrections_().find(c => c.id === id);
+  if (!old) throw httpError_(404, 'That correction does not exist.');
+  const c = checkCorrection_(Object.assign({}, req, { kind: old.kind }));
+  const sh = tab_('Corrections');
+  const ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(r => String(r[0]));
+  const row = ids.indexOf(id) + 2;
+  const before = currentUnits_();
+  withLock_(() => {
+    sh.getRange(row, 3, 1, 4).setValues([[c.from, c.to === null ? '' : c.to, c.kind === 'adjust' ? c.value : '', cellText_(c.reason)]]);
+    sh.getRange(row, 10, 1, 2).setValues([[user.email, new Date()]]);
+  });
+  const after = currentUnits_();
+  const changed = correctionText_(old) !== correctionText_(c) || old.reason !== c.reason;
+  return {
+    id, corrections: correctionsWithEffects_(),
+    details: changed
+      ? `${correctionText_(old)} → ${correctionText_(c)}${old.reason !== c.reason ? ` · reason "${old.reason}" → "${c.reason}"` : ''} · current cycle ${unitsText_(before)} → ${unitsText_(after)}`
+      : 'no change',
+  };
+}
+
+/** The same rules for new and edited corrections. */
+function checkCorrection_(req) {
   const kind = req.kind === 'adjust' ? 'adjust' : req.kind === 'exclude' ? 'exclude' : '';
   const from = Number(req.from), to = req.to == null || req.to === '' ? null : Number(req.to);
   const value = kind === 'adjust' ? Number(req.value) : 0;
@@ -406,15 +442,13 @@ function saveCorrection_(req, user) {
   if (kind === 'exclude' && to === null) throw httpError_(400, 'Ignoring readings needs an end time.');
   if (kind === 'adjust' && !(Number.isFinite(value) && value !== 0 && Math.abs(value) < 100000)) throw httpError_(400, 'Enter the energy change in kWh (not zero).');
   if (reason.length < 3) throw httpError_(400, 'Write a short reason, so the change can be understood later.');
+  return { kind, from, to, value, reason };
+}
 
-  const before = currentUnits_();
-  const id = 'C' + Utilities.getUuid().slice(0, 8);
-  withLock_(() => addRow_(tab_('Corrections'), [id, kind, from, to === null ? '' : to, kind === 'adjust' ? value : '', reason, true, user.email, new Date(), '', '']));
-  const after = currentUnits_();
-  const what = kind === 'adjust'
-    ? `${value > 0 ? '+' : ''}${value} kWh ${to ? `used ${fmt_(from)} – ${fmt_(to)} (spread evenly)` : 'at ' + fmt_(from)}, counted from then on`
-    : `readings ${fmt_(from)} – ${fmt_(to)} ignored`;
-  return { saved: { id }, corrections: correctionsWithEffects_(), details: `${what} · reason: ${reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+function correctionText_(c) {
+  return c.kind === 'adjust'
+    ? `${c.value > 0 ? '+' : ''}${c.value} kWh ${c.to ? `used ${fmt_(c.from)} – ${fmt_(c.to)} (spread evenly)` : 'at ' + fmt_(c.from)}, counted from then on`
+    : `readings ${fmt_(c.from)} – ${fmt_(c.to)} ignored`;
 }
 
 function setCorrectionActive_(req, user) {
