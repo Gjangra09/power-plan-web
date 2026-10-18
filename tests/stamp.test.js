@@ -9,6 +9,7 @@ import { stampHtml, stampJs, stampSite } from '../scripts/stamp-site.mjs';
 test('HTML: local script and stylesheet get the version, CDN ones do not; the page knows its version', () => {
   const out = stampHtml(fs.readFileSync(new URL('../admin.html', import.meta.url), 'utf8'), 'abc1234');
   assert.match(out, /<meta name="app-version" content="abc1234">/);
+  assert.match(out, /<meta name="app-built" content="\d{4}-\d\d-\d\dT/);
   assert.match(out, /src="js\/admin\.js\?v=abc1234"/);
   assert.match(out, /href="css\/style\.css\?v=abc1234"/);
   assert.match(out, /src="https:\/\/accounts\.google\.com\/gsi\/client"/);
@@ -35,6 +36,8 @@ test('a whole site folder: pages, modules and version.json; the uat/ copy is lef
   assert.match(fs.readFileSync(path.join(dir, 'index.html'), 'utf8'), /js\/app\.js\?v=r2/);
   assert.match(fs.readFileSync(path.join(dir, 'js', 'app.js'), 'utf8'), /\.\/ui\.js\?v=r2/);
   assert.equal(fs.readFileSync(path.join(dir, 'uat', 'index.html'), 'utf8'), '<head></head><script src="js/app.js"></script>');
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'version.json'), 'utf8')), { version: 'r2' });
+  const v = JSON.parse(fs.readFileSync(path.join(dir, 'version.json'), 'utf8'));
+  assert.equal(v.version, 'r2');
+  assert.match(v.builtAt, /^\d{4}-\d\d-\d\dT/);
   assert.throws(() => stampSite(dir, 'bad version!'), /Bad version/);
 });

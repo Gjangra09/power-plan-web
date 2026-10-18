@@ -217,6 +217,7 @@ function pastSummary_(bills, i, user, pages, now) {
 
 /** Adds the cycle list for the picker and leaves out what the person may not see. */
 function finishSummary_(out, pages) {
+  out.build = serverBuild_();
   if (pages.includes('past')) out.cycles = cycles_();
   const extras = out.cycle ? billExtras_(out.cycle) : {};
   if (out.calc && pages.includes('breakdown')) out.breakdown = Billing.cycleBreakdown(out.calc, out.cycle.current, extras);
@@ -225,6 +226,11 @@ function finishSummary_(out, pages) {
   return out;
 }
 
+
+/** The backend version from the deploy stamp (Build.gs), or null when deployed by hand. */
+function serverBuild_() {
+  return typeof BUILD === 'undefined' ? null : { env: BUILD.env, commit: BUILD.commit, dirty: !!BUILD.dirty, deployedAt: BUILD.deployedAt };
+}
 
 /** Removes the slab-by-slab lines (Bill breakdown page) from a calculation, in place. */
 function stripSlabLines_(o) {

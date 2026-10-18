@@ -404,3 +404,10 @@ test('billing: an uploaded bill re-links to its cycle after the readings are edi
   post(b, 'admin@example.com', { action: 'deleteBilling', ts: B1 + 3 * H });
   assert.equal(b.ctx.billDocs_()[0].cycleStart, null, 'its reading is gone, so it is no longer linked');
 });
+
+test('the server reports its version (deploy stamp) to the page, or null when deployed by hand', () => {
+  const b = ready();
+  assert.equal(post(b, 'viewer@example.com', { action: 'summary' }).build, null);
+  b.run("var BUILD = { env: 'uat', commit: 'abc1234', dirty: false, deployedAt: '2026-10-18T17:00:00.000Z' };");
+  assert.deepEqual(post(b, 'viewer@example.com', { action: 'summary' }).build, { env: 'uat', commit: 'abc1234', dirty: false, deployedAt: '2026-10-18T17:00:00.000Z' });
+});

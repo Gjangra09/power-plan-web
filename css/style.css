@@ -366,6 +366,8 @@ input:focus, select:focus { outline: none; border-color: var(--amber); box-shado
   .facts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 
+.profile__version { font-variant-numeric: tabular-nums; word-break: break-word; }
+
 /* Service health page */
 .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .hcheck { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; }

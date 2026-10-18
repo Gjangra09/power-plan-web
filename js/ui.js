@@ -36,6 +36,7 @@ export function showError(message) {
 
 // Fixed icon markup (never user data)
 const ICON = {
+  code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>',
   bolt: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
   meter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-6"/></svg>',
   rupee: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12M6 9h12M14 20 7 13h2a5 5 0 0 0 0-9"/></svg>',
@@ -84,7 +85,16 @@ function loginUi() {
 }
 
 /** Avatar + name + role in the header, with a menu: details, Admin link, sign out. */
-function renderProfile(me, exp) {
+/** "Prod · page a8bc119 (18 Oct, 22:43) · server f4d2d8d (18 Oct, 22:38)" for the profile menu. */
+function versionText(build) {
+  const meta = name => document.querySelector(`meta[name="${name}"]`)?.content;
+  const when = iso => (iso ? ` (${new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })})` : '');
+  const page = meta('app-version') ? `page ${meta('app-version')}${when(meta('app-built'))}` : 'page: local preview';
+  const server = isDemo() ? 'server: demo' : build ? `server ${build.commit}${build.dirty ? '+' : ''}${when(build.deployedAt)}` : 'server: not stamped';
+  return `${CONFIG.env === 'uat' ? 'UAT' : 'Prod'} · ${page} · ${server}`;
+}
+
+function renderProfile(me, exp, build) {
   const box = document.getElementById('who');
   const initials = (me.name || me.email).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
   const avatar = big => {
@@ -106,6 +116,7 @@ function renderProfile(me, exp) {
     el('p', { class: 'profile__meta' }, icon('clock', 'profile__meta-icon'),
       isDemo() ? 'Demo mode – nothing is saved.'
         : `Signed in on this device until ${dateOnly(exp)}. Using the app keeps you signed in.`),
+    el('p', { class: 'profile__meta profile__version', title: 'The version of the page and of the server running now' }, icon('code', 'profile__meta-icon'), versionText(build)),
     me.role === 'admin' ? el('a', { class: 'profile__item', href: 'admin.html', role: 'menuitem' }, icon('shield', 'profile__item-icon'), 'Admin portal') : '',
     el('button', { class: 'profile__item profile__item--out', role: 'menuitem', onclick: signOut, disabled: isDemo() }, icon('logout', 'profile__item-icon'), 'Sign out'),
   );
@@ -198,7 +209,7 @@ export async function boot(page = location.pathname.endsWith('admin.html') ? 'ad
     const data = await call('summary', Object.assign({ page }, params));
     const s = currentSession();
     const me = Object.assign({}, s?.me, data.me);
-    renderProfile(me, s?.exp);
+    renderProfile(me, s?.exp, data.build);
     renderNav(me, page);
     main.hidden = false;
     return data;
