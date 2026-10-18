@@ -11,9 +11,9 @@ boot().then(render).catch(() => { /* error already shown */ });
 function render(data) {
   const bills = data.bills;
   const bill = bills[bills.length - 1];
-  if (!bill) return showError('No billing date yet. An admin can add one on the Admin page.');
+  if (!bill) return stop('No billing date yet. An admin can add one on the Admin page.');
   if (bill.startEnergy == null) {
-    return showError(`The last billing time (${dateTime(bill.ts)}) is outside the logged readings, so units since billing cannot be measured. Set a newer billing time on the Admin page.`);
+    return stop(`The last billing time (${dateTime(bill.ts)}) is outside the logged readings, so units since billing cannot be measured. Set a newer billing time on the Admin page.`);
   }
 
   const tariff = data.tariff || DEFAULT_TARIFF;
@@ -35,6 +35,12 @@ function render(data) {
 }
 
 // ---------- hero ----------
+
+/** Shows only the message: an empty dashboard (₹0, blank charts) would look like real numbers. */
+function stop(message) {
+  document.getElementById('main').hidden = true;
+  showError(message);
+}
 
 function renderHero(s, bill, typicalDays, now) {
   document.getElementById('heroEnd').textContent = `≈ ${dateOnly(s.cycleEnd)}`;
