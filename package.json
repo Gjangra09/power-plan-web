@@ -1,0 +1,9 @@
+{
+  "name": "power-plan-web",
+  "private": true,
+  "type": "module",
+  "description": "Bill-cycle summary for the PZEM energy logger (GitHub Pages frontend + Apps Script backend)",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

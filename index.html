@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#070B17">
+  <title>Power Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="./"><span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>Power Plan</a>
+    <nav>
+      <a href="./" aria-current="page">Summary</a>
+      <a href="admin.html" data-admin hidden>Admin</a>
+    </nav>
+    <div class="who"><span id="who"></span> <button id="signout" class="link" hidden>Sign out</button></div>
+  </header>
+
+  <p id="demo" class="status status--demo" hidden><strong>DEMO DATA – not your meter.</strong> These numbers are made up. Connect the backend (README steps 2–3) to see your real usage.</p>
+  <div id="signin" class="signin" hidden></div>
+  <p id="status" class="status" hidden></p>
+
+  <main id="main" hidden>
+    <section class="hero" aria-label="Projected bill">
+      <div class="hero__main">
+        <p class="eyebrow">Projected bill · next meter reading <span id="heroEnd"></span></p>
+        <p class="hero__value" id="heroBill">₹0</p>
+        <p class="hero__sub" id="heroSub"></p>
+        <div class="chips">
+          <span class="chip" id="chipSoFar"></span>
+          <span class="chip" id="chipUnits"></span>
+          <span id="health" class="chip health"></span>
+        </div>
+      </div>
+      <div class="ring" id="ring" role="img"></div>
+      <div class="hero__meter">
+        <div class="hero__meter-head">
+          <span>This cycle against the FPPAS line</span>
+          <span class="muted-sm">47 p/unit on every unit once the cycle averages 200 units/month</span>
+        </div>
+        <div id="meter" class="meter" role="img" aria-label="Units used and projected for this cycle against the FPPAS line"></div>
+      </div>
+    </section>
+
+    <section id="kpis" class="kpis" aria-label="Key figures"></section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <div>
+          <h2>Units per day</h2>
+          <p id="usageNote" class="muted"></p>
+        </div>
+        <div id="usageView" class="seg" role="group" aria-label="Show units as chart or table"></div>
+      </div>
+      <div id="usageChartBox" class="chart"><canvas id="usageChart" role="img" aria-label="Units used each day with the growing average"></canvas></div>
+      <div id="usageTableBox" class="table-wrap daily-scroll" hidden><table id="daily" class="daily"></table></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <div>
+          <h2>Bill</h2>
+          <p id="chargesNote" class="muted"></p>
+        </div>
+        <div id="chargesView" class="seg" role="group" aria-label="Show the bill cumulatively or day by day"></div>
+      </div>
+      <div class="chart"><canvas id="chargesChart" role="img" aria-label="Bill so far and projected to the next meter reading"></canvas></div>
+    </section>
+
+    <p class="foot" id="cycle"></p>
+  </main>
+</body>
+</html>

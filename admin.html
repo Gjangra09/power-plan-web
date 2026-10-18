@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Power Plan Admin</title>
+  <meta name="theme-color" content="#070B17">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <script type="module" src="js/admin.js"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="./"><span class="brand__mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>Power Plan</a>
+    <nav>
+      <a href="./">Summary</a>
+      <a href="admin.html" aria-current="page" data-admin hidden>Admin</a>
+    </nav>
+    <div class="who"><span id="who"></span> <button id="signout" class="link" hidden>Sign out</button></div>
+  </header>
+
+  <p id="demo" class="status status--demo" hidden><strong>DEMO DATA – not your meter.</strong> Changes here are not saved.</p>
+  <div id="signin" class="signin" hidden></div>
+  <p id="status" class="status" hidden></p>
+
+  <main id="main" hidden>
+    <h1>Admin</h1>
+
+    <section class="panel">
+      <h2>Last billing (meter reading)</h2>
+      <p class="muted">Enter the date and time DHBVN read the meter. The app looks up the logger's energy reading at that moment and counts units from there.</p>
+      <form id="billForm" class="form">
+        <label>Billing date and time
+          <input type="datetime-local" id="billTs" required>
+        </label>
+        <label>Expected next reading (optional)
+          <input type="date" id="nextDate">
+        </label>
+        <label>Note (optional)
+          <input type="text" id="note" maxlength="200" placeholder="e.g. bill no. or reader remarks">
+        </label>
+        <button class="btn" type="submit">Save billing</button>
+        <p id="billMsg" class="msg" role="status"></p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Billing history</h2>
+      <div class="table-wrap"><table id="bills"></table></div>
+    </section>
+
+    <section class="panel">
+      <h2>Who can view</h2>
+      <p class="muted">Viewers see the Summary page with their own Google account. Admins can also use this page.</p>
+      <div class="table-wrap"><table id="users"></table></div>
+      <form id="userForm" class="row" style="margin-top: 0.75rem">
+        <label>Email <input type="email" id="userEmail" required placeholder="family.member@gmail.com"></label>
+        <label style="flex: 0 1 140px">Role
+          <select id="userRole"><option value="viewer">viewer</option><option value="admin">admin</option></select>
+        </label>
+        <button class="btn" type="submit">Add / update</button>
+      </form>
+      <p id="userMsg" class="msg" role="status"></p>
+    </section>
+  </main>
+</body>
+</html>
