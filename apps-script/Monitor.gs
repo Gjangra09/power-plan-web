@@ -249,13 +249,18 @@ function phase0Check() {
   });
   Logger.log(`D1 on the server: ${ok}/${ENGINE_FIXTURE.bills.length} DHBVN bills match to the paisa.`);
 
-  Logger.log('Tariff versions: ' + tariffVersions_().map(v => `${v.id} from ${v.from ? fmt_(v.from) : 'the start'}`).join('; '));
+  Logger.log('Tariff versions: ' + tariffVersions_().map(v => `${v.id} from ${Number.isFinite(v.from) && v.from > 0 ? fmt_(v.from) : 'the start'}`).join('; '));
   const s = summary_({}, { email: 'phase0Check' });
   if (s.calc) {
     const c = s.calc;
     Logger.log(`Current cycle (server): ${c.unitsSoFar.toFixed(2)} units in ${c.daysElapsed.toFixed(2)} days · so far ₹${c.chargesSoFar.total} · projected ₹${c.projectedBill.total} for ${c.projectedUnits.toFixed(1)} units`);
     const q = s.quality;
     Logger.log(`Data quality this cycle: ${(q.share * 100).toFixed(1)}% of hours with data (${q.complete} complete, ${q.partial} partial, ${q.missing} missing); ${q.filledGaps} short gaps filled, ${q.outages} outages; corrections active: ${q.corrections}`);
+    // Hours written by the code before Phase 0 have no LoggerRows: grid-off hours are missing
+    // there, which makes coverage look lower and night power cuts look like outages
+    const sh = tab_('Hourly');
+    const old = sh.getLastRow() > 1 ? sh.getRange(2, 2, sh.getLastRow() - 1, 6).getValues().filter(r => Number(r[0]) >= c.cycleStart.getTime() && r[4] === '').length : 0;
+    if (old) Logger.log(`Note: ${old} hours of this cycle were recorded by the older code (no logger-row count, grid-off hours left out). Run backfillHourly once to rebuild the history; units and bills do not change.`);
   } else {
     Logger.log('No usable bill for the current cycle yet.');
   }
