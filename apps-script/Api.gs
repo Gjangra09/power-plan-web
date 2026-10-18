@@ -231,7 +231,7 @@ function saveCorrection_(req, user) {
   withLock_(() => addRow_(tab_('Corrections'), [id, kind, from, to === null ? '' : to, kind === 'adjust' ? value : '', reason, true, user.email, new Date(), '', '']));
   const after = currentUnits_();
   const what = kind === 'adjust'
-    ? `${value > 0 ? '+' : ''}${value} kWh from ${fmt_(from)}${to ? ' to ' + fmt_(to) : ''}`
+    ? `${value > 0 ? '+' : ''}${value} kWh ${to ? `used ${fmt_(from)} – ${fmt_(to)} (spread evenly)` : 'at ' + fmt_(from)}, counted from then on`
     : `readings ${fmt_(from)} – ${fmt_(to)} ignored`;
   return { saved: { id }, corrections: corrections_(), details: `${what} · reason: ${reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
 }

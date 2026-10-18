@@ -16,7 +16,9 @@ export const QUALITY_DEFAULTS = {
 /**
  * Applies admin corrections to snapshots without changing the input (raw data is never edited).
  * - exclude {from, to}: snapshots in the range are ignored (treated as a gap)
- * - adjust  {from, to?, value}: value kWh is added to every snapshot from `from` (until `to`, if set)
+ * - adjust  {from, to?, value}: value kWh used in the period that the logger missed (or, negative,
+ *   counted wrongly). It is spread evenly from `from` to `to` and stays in every later snapshot,
+ *   so it changes the totals. Without `to` the whole value applies from `from`.
  * Inactive corrections are skipped, so switching one off restores the exact previous result.
  */
 export function applyCorrections(points, corrections) {
@@ -26,12 +28,17 @@ export function applyCorrections(points, corrections) {
   points.forEach(p => {
     const t = +p.ts;
     if (active.some(c => c.kind === 'exclude' && t >= c.from && t <= (c.to == null ? Infinity : c.to))) return;
-    const add = active
-      .filter(c => c.kind === 'adjust' && t >= c.from && t <= (c.to == null ? Infinity : c.to))
-      .reduce((s, c) => s + Number(c.value), 0);
+    const add = active.filter(c => c.kind === 'adjust').reduce((s, c) => s + adjustAt(c, t), 0);
     out.push(Object.assign({}, p, { energy: p.energy + add }));
   });
   return out;
+}
+
+/** How much of an adjust correction has accrued at time t: 0 before, a share during, all after. */
+function adjustAt(c, t) {
+  if (t < c.from) return 0;
+  if (c.to == null || t >= c.to) return Number(c.value);
+  return Number(c.value) * (t - c.from) / (c.to - c.from);
 }
 
 /** Sorted by time, one snapshot per timestamp (the later row wins), energy never decreasing. */

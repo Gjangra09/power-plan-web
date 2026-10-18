@@ -51,10 +51,23 @@ test('D3 applying corrections is idempotent: same input, same output, every time
   assert.deepEqual(a, b);
 });
 
-test('D3 a correction that dips the counter is evened out, never counted as negative use', () => {
-  const pts = applyCorrections(series(10), [{ kind: 'adjust', from: T0 + 4 * H, to: T0 + 4 * H, value: -5 }]);
-  const clean = cleanPoints(pts);
-  for (let i = 1; i < clean.length; i++) assert.ok(clean[i].energy >= clean[i - 1].energy);
+test('D3 units added for a period are spread over it and count in every later reading (the total goes up)', () => {
+  const pts = series(96);
+  const corr = [{ kind: 'adjust', from: T0 + 10 * H, to: T0 + 14 * H, value: 4 }];
+  const out = applyCorrections(pts, corr);
+  const added = out.map((p, i) => Math.round((p.energy - pts[i].energy) * 1e9) / 1e9);
+  assert.deepEqual(added.slice(8, 17), [0, 0, 0, 1, 2, 3, 4, 4, 4], 'before 0, during 1 kWh/hour, after all 4');
+  assert.equal(added[added.length - 1], 4);
+  const before = summary(pts), after = summary(out);
+  assert.ok(Math.abs(after.unitsSoFar - before.unitsSoFar - 4) < 1e-9, 'cycle total + 4 units');
+  assert.ok(Math.abs(after.days.reduce((s, d) => s + d.units, 0) - before.days.reduce((s, d) => s + d.units, 0) - 4) < 1e-9, 'daily units add up to it');
+});
+
+test('D3 subtracting more than was used in a period never shows negative use, and the total drops by exactly that much', () => {
+  const pts = series(96);
+  const out = cleanPoints(applyCorrections(pts, [{ kind: 'adjust', from: T0 + 4 * H, to: T0 + 5 * H, value: -3 }]));
+  for (let i = 1; i < out.length; i++) assert.ok(out[i].energy >= out[i - 1].energy);
+  assert.ok(Math.abs(out[out.length - 1].energy - (pts[pts.length - 1].energy - 3)) < 1e-9);
 });
 
 // ---------- D4: data quality ----------

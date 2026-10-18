@@ -84,7 +84,8 @@ test('D6 a backfill cut off after writing (before saving its place) finishes wit
 });
 
 test('D6 an update cut off in the middle of writing hours gives the same result when repeated', () => {
-  const extra = loggerRows(END, 0.5, { energy0: DATA.energyEnd }).rows;
+  // 2.5 h of new rows always spans at least 3 hours, so there is a second hour write to cut off
+  const extra = loggerRows(END, 2.5, { energy0: DATA.energyEnd }).rows;
   const clean = ready();
   clean.source.rows.push(...extra.map(r => r.slice()));
   clean.ctx.updateHourly();
@@ -204,7 +205,7 @@ test('D3 a correction changes the server bill by exactly its amount, is logged b
   const r = b.ctx.saveCorrection_({ kind: 'adjust', from: END - 10 * H, value: -2, reason: 'test glitch' }, user);
   const on = b.ctx.summary_({}, user).calc;
   assert.ok(Math.abs(on.unitsSoFar - (base.unitsSoFar - 2 * 1.02)) < 1e-9, 'units − 2 kWh × meter factor');
-  assert.match(r.details, /−?-2 kWh from .* reason: test glitch · current cycle [\d.]+ units → [\d.]+ units/);
+  assert.match(r.details, /^-2 kWh at .*, counted from then on · reason: test glitch · current cycle [\d.]+ units → [\d.]+ units/);
   const off = b.ctx.setCorrectionActive_({ id: r.saved.id, active: false }, user);
   assert.match(off.details, /on → off/);
   assert.deepEqual(JSON.parse(JSON.stringify(b.ctx.summary_({}, user).calc)), JSON.parse(JSON.stringify(base)));
@@ -217,7 +218,7 @@ test('D3 the activity log keeps "−2 kWh …" and typed "=…" text as text (Sh
   const r = b.ctx.saveCorrection_({ kind: 'adjust', from: END - 10 * H, value: -2, reason: '=IMPORTDATA("x")' }, user);
   b.ctx.logActivity_(user, {}, ['change', 'Added data correction ' + r.saved.id, r.details]);
   const last = b.ctx.recentActivity_(1)[0];
-  assert.match(last.details, /^-2 kWh from /);
+  assert.match(last.details, /^-2 kWh at /);
   assert.equal(b.ctx.corrections_()[0].reason, '=IMPORTDATA("x")');
   assert.ok(b.tab('Activity').rows.slice(1).every(row => row.every(v => String(v) !== '#ERROR!')));
 });
@@ -229,6 +230,16 @@ test('D3 cells already turned into #ERROR! by Sheets are repaired back to their 
   assert.equal(b.ctx.repairTextCells_(), 1);
   assert.equal(b.ctx.recentActivity_(1)[0].details, '-2 kWh from 18 Oct 2026 10:00 · reason: test');
   assert.equal(b.ctx.repairTextCells_(), 0, 'nothing left to repair');
+});
+
+test('D3 units added for a past period (From–To) raise the server\'s cycle total by exactly that much × meter factor', () => {
+  const b = ready();
+  const user = { email: 'admin@example.com', role: 'admin' };
+  const base = b.ctx.summary_({}, user).calc;
+  b.ctx.saveCorrection_({ kind: 'adjust', from: END - 30 * H, to: END - 26 * H, value: 3, reason: 'logger missed these' }, user);
+  const after = b.ctx.summary_({}, user).calc;
+  assert.ok(Math.abs(after.unitsSoFar - (base.unitsSoFar + 3 * 1.02)) < 1e-9);
+  assert.ok(after.chargesSoFar.total > base.chargesSoFar.total);
 });
 
 test('D3 corrections are checked: no reason, no end for "exclude", zero change → refused', () => {

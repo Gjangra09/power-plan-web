@@ -125,7 +125,7 @@ function setupCorrections() {
     document.getElementById('corrValueBox').hidden = !adjust;
     document.getElementById('corrValue').required = adjust;
     document.getElementById('corrTo').required = !adjust;
-    document.getElementById('corrToHint').textContent = adjust ? '(optional – empty means from then on)' : '(required)';
+    document.getElementById('corrToHint').textContent = adjust ? '(optional – units are spread From → To; empty = all at From)' : '(required)';
   };
   kind.addEventListener('change', showFields);
   showFields();
@@ -164,7 +164,7 @@ function renderCorrections(list) {
   table.replaceChildren(
     el('tr', {}, el('th', {}, 'What'), el('th', {}, 'Period'), el('th', {}, 'Reason'), el('th', {}, 'By'), el('th', {}, 'Status'), el('th', {}, '')),
     ...[...list].reverse().map(c => el('tr', {},
-      el('td', {}, c.kind === 'adjust' ? `${c.value > 0 ? '+' : ''}${num(c.value, 3)} kWh` : 'Ignore readings'),
+      el('td', {}, c.kind === 'adjust' ? `${c.value > 0 ? '+' : ''}${num(c.value, 3)} units` : 'Ignore readings'),
       el('td', {}, c.to ? `${dateTime(c.from)} – ${dateTime(c.to)}` : `from ${dateTime(c.from)}`),
       el('td', {}, c.reason),
       el('td', {}, c.createdBy),

@@ -69,15 +69,15 @@
 
     <section class="panel">
       <h2>Data corrections</h2>
-      <p class="muted">Fix bad logger data without editing it: ignore readings in a time range, or add/subtract kWh from a time onwards (e.g. a counter jump). Raw data is never changed; turning a correction off brings back the exact previous numbers. Every change is in the Activity log with its effect.</p>
+      <p class="muted">Fix bad logger data without editing it: ignore readings in a time range, or add units the logger missed in a period (or subtract units it counted wrongly). Added units are spread evenly over the period and count in the totals from then on. Raw data is never changed; turning a correction off brings back the exact previous numbers. Every change is in the Activity log with its effect.</p>
       <div class="table-wrap"><table id="corrections"></table></div>
       <form id="corrForm" class="form" style="margin-top: 0.75rem">
         <label>What to do
-          <select id="corrKind"><option value="exclude">Ignore readings in a time range</option><option value="adjust">Add / subtract kWh</option></select>
+          <select id="corrKind"><option value="exclude">Ignore readings in a time range</option><option value="adjust">Add or subtract units for a period</option></select>
         </label>
         <label>From <input type="datetime-local" id="corrFrom" required></label>
         <label>To <span class="muted" id="corrToHint">(required)</span> <input type="datetime-local" id="corrTo"></label>
-        <label id="corrValueBox" hidden>kWh to add (negative to subtract) <input type="number" id="corrValue" step="0.001"></label>
+        <label id="corrValueBox" hidden>Units (kWh) used in the period – negative to subtract <input type="number" id="corrValue" step="0.001"></label>
         <label>Reason <input type="text" id="corrReason" maxlength="200" required placeholder="e.g. logger glitch after power cut"></label>
         <button class="btn" type="submit">Add correction</button>
         <p id="corrMsg" class="msg" role="status"></p>
