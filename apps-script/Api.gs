@@ -37,7 +37,7 @@ const ACTIONS = {
   decideRequest: { role: 'admin',  fn: 'decideRequest_' },
   removeUser:    { role: 'admin',  fn: 'removeUser_' },
   listActivity:  { role: 'admin',  fn: 'listActivity_' },
-  listCorrections:     { role: 'admin', fn: () => ({ corrections: corrections_() }) },
+  listCorrections:     { role: 'admin', fn: () => ({ corrections: correctionsWithEffects_() }) },
   saveCorrection:      { role: 'admin', fn: 'saveCorrection_' },
   setCorrectionActive: { role: 'admin', fn: 'setCorrectionActive_' },
   getAlertSettings:    { role: 'admin', fn: 'alertSettings_' },
@@ -379,6 +379,21 @@ function corrections_() {
   }));
 }
 
+/**
+ * Corrections with where their units land: [{…, effects: [{start, end, current, kwh}]}] per bill
+ * cycle (logger kWh, before the meter factor). A correction spread over a period that crosses a
+ * meter reading is split between the cycles; "ignore readings" moves no units.
+ */
+function correctionsWithEffects_() {
+  const bills = billsSorted_();
+  const now = Date.now();
+  const cycles = bills.map((b, i) => ({ start: b.ts, end: i + 1 < bills.length ? bills[i + 1].ts : now, current: i + 1 === bills.length }));
+  return corrections_().map(c => Object.assign(c, {
+    effects: cycles.map(cy => Object.assign({}, cy, { kwh: Quality.adjustBetween(Object.assign({}, c, { active: true }), cy.start, cy.end) }))
+      .filter(e => Math.abs(e.kwh) >= 0.005),
+  }));
+}
+
 /** Adds a correction; the activity log shows what it did to the current cycle (before → after). */
 function saveCorrection_(req, user) {
   const kind = req.kind === 'adjust' ? 'adjust' : req.kind === 'exclude' ? 'exclude' : '';
@@ -399,7 +414,7 @@ function saveCorrection_(req, user) {
   const what = kind === 'adjust'
     ? `${value > 0 ? '+' : ''}${value} kWh ${to ? `used ${fmt_(from)} – ${fmt_(to)} (spread evenly)` : 'at ' + fmt_(from)}, counted from then on`
     : `readings ${fmt_(from)} – ${fmt_(to)} ignored`;
-  return { saved: { id }, corrections: corrections_(), details: `${what} · reason: ${reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+  return { saved: { id }, corrections: correctionsWithEffects_(), details: `${what} · reason: ${reason} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
 }
 
 function setCorrectionActive_(req, user) {
@@ -415,7 +430,7 @@ function setCorrectionActive_(req, user) {
     sh.getRange(i + 2, 10, 1, 2).setValues([[user.email, new Date()]]);
   });
   const after = currentUnits_();
-  return { id, active, corrections: corrections_(), details: `${active ? 'off → on' : 'on → off'} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
+  return { id, active, corrections: correctionsWithEffects_(), details: `${active ? 'off → on' : 'on → off'} · current cycle ${unitsText_(before)} → ${unitsText_(after)}` };
 }
 
 /** Units so far in the current cycle (for before → after in the activity log), or null. */

@@ -119,3 +119,14 @@ test('D4 coverage: complete, partial and missing hours', () => {
   ];
   assert.deepEqual(coverage(hours, T0, T0 + 6 * H), { total: 6, complete: 3, partial: 1, missing: 2, share: 4 / 6 });
 });
+
+import { adjustBetween } from '../js/quality.js';
+
+test('adjustBetween: the part of a spread correction inside a period; a one-off counts fully after it', () => {
+  const c = { kind: 'adjust', from: T0, to: T0 + 10 * H, value: -10 };
+  assert.ok(Math.abs(adjustBetween(c, T0 - H, T0 + 2 * H) + 2) < 1e-9, '2 of 10 hours → −2');
+  assert.ok(Math.abs(adjustBetween(c, T0 + 2 * H, T0 + 20 * H) + 8) < 1e-9, 'the rest → −8');
+  assert.equal(adjustBetween({ kind: 'adjust', from: T0, value: 3 }, T0 - H, T0 + H), 3);
+  assert.equal(adjustBetween({ kind: 'exclude', from: T0, to: T0 + H }, T0 - H, T0 + 2 * H), 0);
+  assert.equal(adjustBetween({ ...c, active: false }, T0 - H, T0 + 20 * H), 0);
+});

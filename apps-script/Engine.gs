@@ -409,6 +409,11 @@ var Quality = (function () {
     return out;
   }
 
+  /** kWh an adjust correction adds between two times (e.g. a bill cycle); 0 for other kinds. */
+  function adjustBetween(c, fromMs, toMs) {
+    return c.kind === 'adjust' && c.active !== false ? adjustAt(c, toMs) - adjustAt(c, fromMs) : 0;
+  }
+
   /** How much of an adjust correction has accrued at time t: 0 before, a share during, all after. */
   function adjustAt(c, t) {
     if (t < c.from) return 0;
@@ -488,7 +493,7 @@ var Quality = (function () {
     return { total, complete, partial, missing: total - withData, share: total ? withData / total : 0 };
   }
 
-  return { QUALITY_DEFAULTS, applyCorrections, cleanPoints, findGaps, fillGaps, coverage };
+  return { QUALITY_DEFAULTS, applyCorrections, adjustBetween, cleanPoints, findGaps, fillGaps, coverage };
 })();
 
 // ---- tests/fixtures/dhbvn-bills.json (anonymised: amounts only) – used by phase0Check() ----

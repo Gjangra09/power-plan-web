@@ -178,6 +178,9 @@ function docCard(d, me, reload) {
       d.cycleStart ? badge(true, 'Linked to its billing cycle') : badge(false, 'No billing record with these reading dates (add it on Admin)', 'warn')),
     right ? '' : el('ul', { class: 'whatif' }, ...d.check.lines.filter(l => !l.ok).map(l => el('li', {}, `${l.label}: DHBVN ${rs(l.dhbvn)}, tariff gives ${rs(l.recalc)}`))),
     d.compare ? compareTable(d.compare) : el('p', { class: 'muted-sm' }, 'The app has no logger figures for this cycle to compare with.'),
+    d.compare && Math.abs(d.compare.correctionsKwh || 0) >= 0.005
+      ? el('p', { class: 'muted-sm' }, `The app's units include data corrections of ${d.compare.correctionsKwh > 0 ? '+' : '−'}${num(Math.abs(d.compare.correctionsKwh), 2)} kWh in this cycle (× meter factor ${d.compare.meterFactor}; Admin → Data corrections).`)
+      : '',
     msg);
 }
 

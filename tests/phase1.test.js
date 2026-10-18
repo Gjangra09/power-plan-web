@@ -411,3 +411,17 @@ test('the server reports its version (deploy stamp) to the page, or null when de
   b.run("var BUILD = { env: 'uat', commit: 'abc1234', dirty: false, deployedAt: '2026-10-18T17:00:00.000Z' };");
   assert.deepEqual(post(b, 'viewer@example.com', { action: 'summary' }).build, { env: 'uat', commit: 'abc1234', dirty: false, deployedAt: '2026-10-18T17:00:00.000Z' });
 });
+
+test('a correction spread over a meter reading is split between the two cycles, shown per cycle and in the bill comparison', () => {
+  const b = ready();
+  const admin = { email: 'admin@example.com', role: 'admin' };
+  // −6 kWh spread evenly from 6 h before the B2 reading to 18 h after it: −1.5 before, −4.5 after
+  b.ctx.saveCorrection_({ kind: 'adjust', from: B2 - 6 * H, to: B2 + 18 * H, value: -6, reason: 'test glitch' }, admin);
+  const c = post(b, 'admin@example.com', { action: 'listCorrections' }).corrections[0];
+  assert.deepEqual(c.effects.map(e => [e.start, e.current, Math.round(e.kwh * 1000) / 1000]), [[B1, false, -1.5], [B2, true, -4.5]]);
+  const day = ms => new Date(ms + 330 * 60e3).toISOString().slice(0, 10);
+  b.ctx.uploadBill_({ fields: Object.assign({}, REAL[5], { periodFrom: day(B1), periodTo: day(B2) }), file: { base64: PDF } }, admin);
+  const cmp = post(b, 'admin@example.com', { action: 'listBillDocs' }).docs[0].compare;
+  assert.ok(Math.abs(cmp.correctionsKwh + 1.5) < 1e-9);
+  assert.equal(cmp.meterFactor, 1.02);
+});

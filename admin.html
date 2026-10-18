@@ -105,6 +105,7 @@
         </label>
         <label>From <input type="datetime-local" id="corrFrom" required></label>
         <label>To <span class="muted" id="corrToHint">(required)</span> <input type="datetime-local" id="corrTo"></label>
+        <p class="muted-sm" id="corrTip" hidden>A one-off glitch: set From to when it happened and leave To empty – the whole amount counts from then. With a To, the units are spread over the period, and a period that crosses a meter reading is split between those bill cycles (see "Effect per bill cycle").</p>
         <label id="corrValueBox" hidden>Units (kWh) used in the period – negative to subtract <input type="number" id="corrValue" step="0.001"></label>
         <label>Reason <input type="text" id="corrReason" maxlength="200" required placeholder="e.g. logger glitch after power cut"></label>
         <button class="btn" type="submit">Add correction</button>

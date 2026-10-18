@@ -334,6 +334,7 @@ function setupCorrections() {
     document.getElementById('corrValue').required = adjust;
     document.getElementById('corrTo').required = !adjust;
     document.getElementById('corrToHint').textContent = adjust ? '(optional – units are spread From → To; empty = all at From)' : '(required)';
+    document.getElementById('corrTip').hidden = !adjust;
   };
   kind.addEventListener('change', showFields);
   showFields();
@@ -366,14 +367,23 @@ async function loadCorrections() {
   }
 }
 
+/** Where a correction's units land, cycle by cycle (a spread over a meter reading is split). */
+function effectText(c) {
+  if (c.kind !== 'adjust') return el('span', { class: 'muted-sm' }, 'no units moved (the meter still counted them)');
+  if (!c.effects || !c.effects.length) return el('span', { class: 'muted-sm' }, 'outside all bill cycles');
+  const span = e => e.current ? 'current cycle' : `${dateOnly(e.start)} → ${dateOnly(e.end)}`;
+  return el('div', {}, ...c.effects.map(e => el('div', { class: 'muted-sm' }, `${span(e)}: ${e.kwh > 0 ? '+' : '−'}${num(Math.abs(e.kwh), 2)} kWh`)));
+}
+
 function renderCorrections(list) {
   const table = document.getElementById('corrections');
   if (!list.length) return table.replaceChildren(el('tr', {}, el('td', { class: 'muted' }, 'No corrections – all logger data is used as recorded.')));
   table.replaceChildren(
-    el('tr', {}, el('th', {}, 'What'), el('th', {}, 'Period'), el('th', {}, 'Reason'), el('th', {}, 'By'), el('th', {}, 'Status'), el('th', {}, '')),
+    el('tr', {}, el('th', {}, 'What'), el('th', {}, 'Period'), el('th', {}, 'Effect per bill cycle'), el('th', {}, 'Reason'), el('th', {}, 'By'), el('th', {}, 'Status'), el('th', {}, '')),
     ...[...list].reverse().map(c => el('tr', {},
       el('td', {}, c.kind === 'adjust' ? `${c.value > 0 ? '+' : ''}${num(c.value, 3)} units` : 'Ignore readings'),
       el('td', {}, c.to ? `${dateTime(c.from)} – ${dateTime(c.to)}` : `from ${dateTime(c.from)}`),
+      el('td', {}, effectText(c)),
       el('td', {}, c.reason),
       el('td', {}, c.createdBy),
       el('td', {}, el('span', { class: `tag ${c.active ? 'tag--change' : 'tag--sign-out'}` }, c.active ? 'On' : 'Off')),

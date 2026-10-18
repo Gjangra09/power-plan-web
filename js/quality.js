@@ -34,6 +34,11 @@ export function applyCorrections(points, corrections) {
   return out;
 }
 
+/** kWh an adjust correction adds between two times (e.g. a bill cycle); 0 for other kinds. */
+export function adjustBetween(c, fromMs, toMs) {
+  return c.kind === 'adjust' && c.active !== false ? adjustAt(c, toMs) - adjustAt(c, fromMs) : 0;
+}
+
 /** How much of an adjust correction has accrued at time t: 0 before, a share during, all after. */
 function adjustAt(c, t) {
   if (t < c.from) return 0;

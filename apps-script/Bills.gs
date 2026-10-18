@@ -111,6 +111,8 @@ function listBillDocs_(req, user) {
       const calc = closedCycleCalc_(bills[i], bills[i + 1], raw, corrections, versions);
       if (calc) {
         compare = Billing.compareWithApp(d.fields, { units: calc.unitsSoFar, bill: calc.chargesSoFar });
+        compare.correctionsKwh = corrections.reduce((s, c) => s + Quality.adjustBetween(c, bills[i].ts, bills[i + 1].ts), 0);
+        compare.meterFactor = calc.tariff.meterFactor;
         const loggerUnits = calc.unitsSoFar / (calc.tariff.meterFactor || 1);
         calib.push({ periodFrom: d.periodFrom, periodTo: d.periodTo, dhbvnUnits: d.fields.units, loggerUnits, coverage: coverage[d.cycleStart] || 0 });
       }
