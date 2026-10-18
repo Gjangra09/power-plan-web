@@ -119,6 +119,25 @@ function renderProfile(me, exp) {
   box.replaceChildren(btn, menu);
 }
 
+/**
+ * After a release the browser may still hold the old page for up to 10 minutes (GitHub Pages
+ * caching). The published page knows its version (meta app-version, added at publish time);
+ * version.json is always fetched fresh. If they differ, fetch this page fresh once and reload.
+ */
+async function checkForUpdate() {
+  const mine = document.querySelector('meta[name="app-version"]')?.content;
+  if (!mine) return;   // local preview: not stamped
+  try {
+    const { version } = await (await fetch('version.json', { cache: 'no-store' })).json();
+    const key = 'pp_reloaded_' + version;
+    if (version && version !== mine && !sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1');   // at most once per release, never a reload loop
+      await fetch(location.href, { cache: 'reload' });
+      location.reload();
+    }
+  } catch { /* offline or storage blocked: keep the page as it is */ }
+}
+
 // The menu: each page and who may open it (the server enforces the same rules)
 const can = (me, page) => me.role === 'admin' || (me.pages || []).includes(page);
 const NAV = [
@@ -171,6 +190,7 @@ export function showNoAccess(need, label) {
  * params: extra summary parameters (e.g. a cycle).
  */
 export async function boot(page = location.pathname.endsWith('admin.html') ? 'admin' : 'summary', params = {}) {
+  checkForUpdate();
   const main = document.getElementById('main');
   if (isDemo()) document.getElementById('demo').hidden = false;
   try {

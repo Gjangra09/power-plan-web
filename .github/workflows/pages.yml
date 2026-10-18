@@ -37,10 +37,14 @@ jobs:
         working-directory: uat
       - name: Assemble site
         run: |
-          copy() { rsync -a --exclude '.git' --exclude '.github' --exclude 'apps-script' --exclude 'tests' --exclude 'scripts' --exclude 'package.json' --exclude '.gitignore' --exclude 'README.md' "$1"/ "$2"/; }
+          copy() { rsync -a --exclude '.git' --exclude '.github' --exclude 'apps-script' --exclude 'tests' --exclude 'scripts' --exclude 'package.json' --exclude 'package-lock.json' --exclude '.gitignore' --exclude 'README.md' "$1"/ "$2"/; }
           mkdir -p _site/uat
           copy prod _site
           copy uat _site/uat
+          # Version-stamp each copy (?v= on scripts/styles, version.json) so browsers never run old
+          # files. Each copy uses its own script, so prod changes only when this reaches main.
+          [ -f prod/scripts/stamp-site.mjs ] && node prod/scripts/stamp-site.mjs _site "$(git -C prod rev-parse --short HEAD)"
+          [ -f uat/scripts/stamp-site.mjs ] && node uat/scripts/stamp-site.mjs _site/uat "$(git -C uat rev-parse --short HEAD)"
           touch _site/.nojekyll
           ls -R _site | head -40
       - uses: actions/upload-pages-artifact@v3
