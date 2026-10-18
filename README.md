@@ -86,6 +86,18 @@ One-time setup:
 ## Archive (optional, nightly)
 `ArchiveAndClean.gs` moves logger rows older than 60 days to monthly CSVs in Drive and deletes zero-load rows. Run `archiveDryRun` first and check the log. Then run `installArchiveTrigger`, but only once Power BI also reads the archive CSVs. The dashboard is not affected, because its history lives in the Hourly tab.
 
+## Pages and who sees them
+| Page | What | Who |
+|---|---|---|
+| Summary (`index.html`) | Current cycle; any past cycle with the cycle picker (final figures, "vs previous cycle") | everyone on the list; past cycles need **Past cycles** |
+| Bills (`bills.html`) | **Breakdown**: the bill laid out like DHBVN's (slabs, components A–C, payable, what would change it). **Uploaded bills** (`#uploads`): upload the DHBVN e-bill PDF → it is read in the browser (pdf.js) → confirm → line-by-line comparison, "Is DHBVN's bill right?", meter calibration | **Bill breakdown** / **Bill documents**; uploading is admin-only |
+| Health (`health.html`) | Data arriving, last sync, failures, errors, timers, sheet size, backend version | admins; viewers with **Service health** |
+| Admin (`admin.html`) | Billing, who can view (page ticks, requests, invites), Telegram, alerts, data corrections, activity | admins |
+
+Viewers always see the Summary; the admin ticks the other pages per person (Admin → Who can view). The server checks the pages on every request. Someone opening a page they can't see gets **Request access**, which the admin approves or declines. Uploaded bill PDFs live in a private Drive folder ("Power Plan bills (env)") and are only handed out through the app.
+
+After deploying run `phase1Check` in the editor once: it adds new tabs, makes sure the timers exist and logs cycles, uploaded bills, who sees what and the health checks.
+
 ## How the numbers are worked out
 The bill is calculated **once, on the server** (`Engine.gs`, generated from `js/billing.js` and `js/quality.js`); the page only shows it. `tests/engine-sync.test.js` fails if the server copy is not the browser code.
 
@@ -119,7 +131,9 @@ The bill is calculated **once, on the server** (`Engine.gs`, generated from `js/
 ## Files
 | Path | What |
 |---|---|
-| `index.html`, `js/app.js` | Summary page |
+| `index.html`, `js/app.js`, `js/cycle.js` | Summary page, cycle picker |
+| `bills.html`, `js/bills.js`, `js/bills-upload.js`, `js/billparse.js` | Bills page: breakdown, bill upload + reading + comparison |
+| `health.html`, `js/health.js` | Service health page |
 | `admin.html`, `js/admin.js` | Admin page (billing, history, viewers) |
 | `js/billing.js`, `js/quality.js` | Bill engine and data-quality rules (pure, tested); copied into `apps-script/Engine.gs` |
 | `js/api.js`, `js/config.js`, `js/mock.js`, `js/ui.js` | Sign-in, API calls, demo data, shared UI |

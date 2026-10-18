@@ -150,7 +150,8 @@ export function loadBackend({ env = 'uat', telegram = true } = {}) {
   vm.createContext(ctx);
   // Every file, alphabetically (Access, Api, … Summary): a file must not need another one loaded first
   const dir = new URL('../../apps-script/', import.meta.url);
-  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.gs')).sort()) {
+  // (Build.gs is the stamp the deploy writes; not code under test, not in git)
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.gs') && n !== 'Build.gs').sort()) {
     vm.runInContext(fs.readFileSync(new URL(`../../apps-script/${f}`, import.meta.url), 'utf8'), ctx, { filename: f });
   }
   return {

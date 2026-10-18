@@ -92,3 +92,21 @@ function recentErrors_(n) {
     .map(r => ({ ts: r[0] instanceof Date ? r[0].getTime() : Number(r[0]), where: String(r[1]), code: Number(r[2]), message: String(r[3]), action: String(r[5]) }))
     .reverse();
 }
+
+/**
+ * Run from the editor after deploying Phase 1: adds any new tabs, makes sure the timers exist,
+ * and logs what the new pages will show (cycles, uploaded bills, who sees what, health).
+ */
+function phase1Check() {
+  Logger.log(`Environment: ${APP.ENV}`);
+  Object.keys(TABS).forEach(tab_);
+  installTriggers_();
+  const cycles = cycles_();
+  Logger.log(`Cycles: ${cycles.length} (${cycles.filter(c => !c.current).length} closed)`);
+  cycles.filter(c => !c.current).forEach(c => Logger.log(`  ${fmt_(c.start)} → ${fmt_(c.end)}: ${c.units == null ? 'no logger data' : `${c.units.toFixed(1)} units, app ₹${c.appTotal}`}${c.dhbvnTotal != null ? ` · DHBVN ₹${c.dhbvnTotal} (${c.dhbvnUnits} units)` : ''} · logger data ${Math.round(c.coverage * 100)}%`));
+  const docs = billDocs_();
+  Logger.log(`Uploaded DHBVN bills: ${docs.length}${docs.length ? ' – ' + docs.map(d => `${d.periodFrom}→${d.periodTo}${d.cycleStart ? '' : ' (not linked)'}`).join(', ') : ''}`);
+  usersWithLastSeen_().forEach(u => Logger.log(`  ${u.email}: ${u.role}, pages ${u.pages.join(', ')}${u.requests.length ? ` · asks for ${u.requests.join(', ')}` : ''}`));
+  const h = health_();
+  Logger.log(`Health: ${h.status} – ${h.checks.map(c => `${c.label} ${c.status}`).join(', ')}`);
+}
